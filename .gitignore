@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment — KHÔNG commit file này
+backend/.env
+frontend/.env
+frontend/.env.local
+.env
+
+# Credentials & Keys
+credentials/
+*.key
+*.pem
+*.p12
+*.pfx
+google-vision.json
+
+# Build output
+frontend/dist/
+backend/dist/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Test coverage
+coverage/
+
+# Temp
+*.tmp
+*.temp

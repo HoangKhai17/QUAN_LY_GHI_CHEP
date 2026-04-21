@@ -23,6 +23,9 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => logger.info('socket.disconnected', { id: socket.id }))
 })
 
+// Trust proxy headers từ ngrok/nginx (cần để rate-limit nhận đúng IP)
+app.set('trust proxy', 1)
+
 // ── Security & Middleware ────────────────────────────────────────
 app.use(helmet())
 app.use(cors({
@@ -59,6 +62,26 @@ app.use(errorHandler)
 const PORT = process.env.PORT || 3000
 server.listen(PORT, () => {
   logger.info('server.started', { port: PORT, env: process.env.NODE_ENV })
+  registerPlatformWebhooks()
 })
+
+async function registerPlatformWebhooks() {
+  const baseUrl = (process.env.WEBHOOK_BASE_URL || '').replace(/\/+$/, '') // trim trailing slash
+  if (!baseUrl) {
+    logger.warn('webhook.register.skip', { reason: 'WEBHOOK_BASE_URL not set in .env' })
+    return
+  }
+
+  // Telegram
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+      const telegramConnector = require('./connectors/telegram/telegram.connector')
+      const result = await telegramConnector.registerWebhook(baseUrl)
+      logger.info('telegram.webhook.ok', { url: `${baseUrl}/webhook/telegram`, result: result.description })
+    } catch (err) {
+      logger.error('telegram.webhook.failed', { error: err.message })
+    }
+  }
+}
 
 module.exports = { app, server }

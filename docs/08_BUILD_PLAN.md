@@ -107,9 +107,9 @@ cd frontend && npm install antd @ant-design/icons axios zustand react-router-dom
 | `socket.io` | Realtime |
 | `exceljs` | Export Excel |
 | `pdfkit` | Export PDF |
-| `@google-cloud/vision` | OCR |
-| `aws-sdk` hoặc `cloudinary` | File storage |
-| `axios` | HTTP client (gọi Zalo API) |
+| `@google/generative-ai` | AI document extraction (Gemini) |
+| `cloudinary` | File storage |
+| `axios` | HTTP client (Telegram API, image download) |
 
 ### Step 0.2 — Docker Compose local
 ```yaml
@@ -198,8 +198,10 @@ CLOUDINARY_URL=                 # cloudinary://api_key:api_secret@cloud_name
 # hoặc: AWS_S3_BUCKET= / AWS_REGION= / AWS_ACCESS_KEY_ID= / AWS_SECRET_ACCESS_KEY=
 SIGNED_URL_EXPIRES=3600         # URL ảnh hết hạn sau 1 giờ
 
-# OCR
-GOOGLE_VISION_KEY_FILE=./credentials/google-vision.json
+# AI / Document Extraction
+AI_PROVIDER=gemini
+GEMINI_API_KEY=                 # lấy từ aistudio.google.com
+GEMINI_MODEL=gemini-2.5-flash   # hoặc gemini-2.5-pro
 
 # Monitoring
 SENTRY_DSN=                     # Lấy từ sentry.io (tạo free account)
@@ -240,8 +242,9 @@ npm install express-rate-limit
 
 ---
 
-## 📅 PHASE 1 — CORE BACKEND: MULTI-PLATFORM CONNECTOR PIPELINE
+## 📅 PHASE 1 — CORE BACKEND: MULTI-PLATFORM CONNECTOR PIPELINE ✅ ĐÃ XONG
 > **Thời gian:** 5 ngày | **Mục tiêu:** Nhận tin nhắn từ Telegram (ưu tiên) + Zalo → lưu DB tự động
+> **Trạng thái (2026-04-21):** Steps 1.1 → 1.7 hoàn thành. Telegram webhook đang live với ngrok.
 
 ### Kiến trúc Connector Pattern (đã implement xong)
 
@@ -273,7 +276,7 @@ src/modules/webhook/
 2. Đăng ký 1 dòng trong `connectors/index.js`
 3. Thêm env var token vào `.env`
 
-### Step 1.1 — Express app + config (đã xong)
+### Step 1.1 — Express app + config ✅ ĐÃ XONG
 
 ```
 src/app.js              ← Express + Helmet + CORS + rate limiting + Socket.io + routes
@@ -282,7 +285,7 @@ src/config/env.js       ← Validate required env vars on startup
 src/config/logger.js    ← Winston: JSON (prod) / colorized (dev)
 ```
 
-### Step 1.2 — Connector Layer (đã xong)
+### Step 1.2 — Connector Layer ✅ ĐÃ XONG
 
 **Telegram** (ưu tiên — không cần GPKD, nhận 100% message trong group):
 ```
@@ -323,7 +326,7 @@ ZaloConnector
 }
 ```
 
-### Step 1.3 — Webhook Router (đã xong)
+### Step 1.3 — Webhook Router ✅ ĐÃ XONG
 
 **File:** `src/modules/webhook/webhook.router.js`
 
@@ -338,7 +341,7 @@ GET /webhook/platforms
   → Trả về danh sách platform đang active
 ```
 
-### Step 1.4 — MessageProcessor (đã xong)
+### Step 1.4 — MessageProcessor ✅ ĐÃ XONG
 
 **File:** `src/modules/webhook/message.processor.js`
 
@@ -352,7 +355,7 @@ process(normalizedMsg, connector, io)
   6. io.emit('new_record', { record_id, sender_name, platform, ... })
 ```
 
-### Step 1.5 — Storage Service
+### Step 1.5 — Storage Service ✅ ĐÃ XONG
 
 **File:** `src/services/storage.service.js`
 
@@ -367,21 +370,37 @@ uploadImage(buffer, filename) → { image_url, thumbnail_url }
 npm install cloudinary
 ```
 
-### Step 1.6 — OCR Service
+### Step 1.6 — AI Document Extraction Service ✅ ĐÃ XONG
 
-**File:** `src/services/ocr.service.js`
+**Files:**
+- `src/services/ocr.service.js` — facade (cùng pattern với storage.service.js)
+- `src/services/ocr/gemini.provider.js` — Gemini multimodal AI provider
 
 ```
-extractText(imageUrl) → { text, confidence, status }
-  ├── Primary:  Google Vision API annotateImage (chính xác nhất)
-  ├── Fallback: Tesseract.js (offline, không cần key)
-  └── Error:    return { text: null, confidence: 0, status: 'failed' }
+extractText(imageUrl) → { text, confidence, status, provider, structured_data }
+  └── Gemini 2.5 Flash: download ảnh → base64 → generateContent([prompt, inlineData])
+      → parse JSON → trả { document_type, date, amount, currency, raw_text, ... }
+      → confidence: 0.90 (text+structure) | 0.70 (text only) | 0.40 (parse failed)
+  └── Thêm provider: AI_PROVIDER=<name> + src/services/ocr/<name>.provider.js
+```
+
+**structured_data fields** (trích xuất tự động từ chứng từ VN):
+```json
+{
+  "document_type": "hóa_đơn | phiếu_chi | phiếu_thu | biên_bản | báo_cáo | hợp_đồng | khác",
+  "date": "YYYY-MM-DD",
+  "amount": "số tiền",
+  "currency": "VND | USD | EUR",
+  "document_number": "số chứng từ",
+  "description": "mô tả chính",
+  "parties": "các bên liên quan",
+  "notes": "thông tin bổ sung",
+  "raw_text": "toàn bộ text trong ảnh"
+}
 ```
 
 ```bash
-# Chọn 1 trong 2:
-npm install @google-cloud/vision     # Cần Google Cloud key file
-npm install tesseract.js              # Offline, không cần key
+npm install @google/generative-ai axios   # đã cài
 ```
 
 ### Step 1.7 — Ngrok cho local testing
@@ -403,7 +422,8 @@ ngrok http 3000
 ```
 
 **Kiểm tra Phase 1 — Telegram (không cần Zalo):**
-- [ ] `npm run dev` → server start → Telegram setWebhook thành công
+- [x] `npm run dev` → server start → Telegram setWebhook thành công ✅
+- [x] ngrok http 3000 → WEBHOOK_BASE_URL cập nhật → Telegram nhận webhook ✅
 - [ ] Gửi ảnh vào Telegram group/chat với Bot → record xuất hiện trong DB
 - [ ] Gửi text vào Telegram → record lưu note, image trống
 - [ ] Gửi sticker/voice → KHÔNG tạo record

@@ -18,14 +18,14 @@ router.post('/:platform', async (req, res) => {
     return res.status(404).json({ error: `Platform '${platform}' not supported` })
   }
 
-  // Trả về 200 ngay cho Telegram/Zalo (tránh retry)
-  res.json({ ok: true })
-
-  // Xác thực chữ ký
+  // Xác thực chữ ký TRƯỚC — verify() là synchronous nên không delay response
   if (!connector.verify(req)) {
     logger.warn('webhook.verify_failed', { platform, ip: req.ip })
-    return
+    return res.status(403).json({ error: 'Invalid signature' })
   }
+
+  // Trả về 200 ngay sau khi verify thành công (tránh platform retry)
+  res.json({ ok: true })
 
   const io = req.app.get('io')
 

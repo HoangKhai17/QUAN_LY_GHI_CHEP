@@ -1,4 +1,4 @@
-# ⚙️ ĐẶC TẢ CHỨC NĂNG — T&D COMPANY
+# ⚙️ ĐẶC TẢ CHỨC NĂNG — QUAN LY GHI CHEP
 > Phiên bản: 1.0 | Cập nhật: 2026-04-20
 
 ---

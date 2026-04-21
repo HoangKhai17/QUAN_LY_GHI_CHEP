@@ -1,4 +1,4 @@
-# 🔐 THIẾT KẾ BẢO MẬT — T&D COMPANY
+# 🔐 THIẾT KẾ BẢO MẬT — QUAN LY GHI CHEP
 > Chuẩn tham chiếu: OWASP Top 10, ISO 27001, Nghị định 13/2023/NĐ-CP (PDPD Việt Nam)
 > Phiên bản: 1.0 | Cập nhật: 2026-04-20
 

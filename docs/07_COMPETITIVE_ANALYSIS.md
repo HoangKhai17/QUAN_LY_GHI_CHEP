@@ -1,4 +1,4 @@
-# 📊 PHÂN TÍCH & CẢI THIỆN SO VỚI THỊ TRƯỜNG — T&D COMPANY
+# 📊 PHÂN TÍCH & CẢI THIỆN SO VỚI THỊ TRƯỜNG — QUAN LY GHI CHEP
 > Phiên bản: 1.0 | Cập nhật: 2026-04-20
 
 ---

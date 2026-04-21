@@ -1,4 +1,4 @@
-# 🔄 FLOW QUY TRÌNH — T&D COMPANY
+# 🔄 FLOW QUY TRÌNH — QUAN LY GHI CHEP
 > Phiên bản: 1.0 | Cập nhật: 2026-04-20
 
 ---

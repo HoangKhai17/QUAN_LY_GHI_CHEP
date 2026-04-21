@@ -1,4 +1,4 @@
-# 📋 TỔNG QUAN HỆ THỐNG — T&D COMPANY
+# 📋 TỔNG QUAN HỆ THỐNG — QUAN LY GHI CHEP
 > Phiên bản: 1.0 | Cập nhật: 2026-04-20
 
 ---

@@ -1,4 +1,4 @@
-# 📚 TÀI LIỆU DỰ ÁN — T&D COMPANY
+# 📚 TÀI LIỆU DỰ ÁN — QUAN LY GHI CHEP
 > Hệ thống Tự động hóa Ghi chép từ Zalo | Phiên bản: 1.0 | 2026-04-20
 
 ---
@@ -14,6 +14,7 @@
 | 05 | [🔐 Bảo mật](./05_SECURITY.md) | 5 lớp bảo mật, RBAC, encryption, PDPD compliance |
 | 06 | [🔍 Debugging & Observability](./06_DEBUGGING_OBSERVABILITY.md) | Logging, Sentry, Grafana, testing strategy |
 | 07 | [📊 Phân tích cạnh tranh](./07_COMPETITIVE_ANALYSIS.md) | So sánh thị trường, điểm cần cải thiện, roadmap |
+| 08 | [🏗️ Build Plan chi tiết](./08_BUILD_PLAN.md) | 9 phases, step-by-step, security + observability + V1.1 roadmap |
 
 ---
 

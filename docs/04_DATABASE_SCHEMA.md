@@ -1,20 +1,25 @@
 # 💾 DATABASE SCHEMA — QUAN LY GHI CHEP
-> Phiên bản: 1.0 | Cập nhật: 2026-04-20
+> Phiên bản: 2.0 | Cập nhật: 2026-04-21 (platform-agnostic — hỗ trợ Zalo, Telegram, Discord...)
 
 ---
 
 ## 📊 Entity Relationship Overview
 
 ```
-┌──────────┐       ┌──────────────┐       ┌──────────────┐
-│  users   │──1:N──│   records    │──N:1──│  categories  │
-└──────────┘       └──────┬───────┘       └──────────────┘
-                          │
-                    ┌─────┴──────┐
-                    │            │
-             ┌──────────┐  ┌──────────────┐
-             │edit_logs │  │  report_jobs │
-             └──────────┘  └──────────────┘
+┌──────────────────┐       ┌──────────────┐       ┌──────────────┐
+│  users           │──1:N──│   records    │──N:1──│  categories  │
+│  (platform-aware)│       └──────┬───────┘       └──────────────┘
+└──────────────────┘              │
+                            ┌─────┴──────┐
+                            │            │
+                     ┌──────────┐  ┌──────────────┐
+                     │edit_logs │  │  report_jobs │
+                     └──────────┘  └──────────────┘
+
+┌──────────────────┐       ┌──────────────┐
+│ platform_configs │       │  audit_logs  │
+│ (zalo/telegram..)│       │  (immutable) │
+└──────────────────┘       └──────────────┘
 ```
 
 ---
@@ -23,23 +28,31 @@
 
 ```sql
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  zalo_id       VARCHAR(50) UNIQUE,        -- Zalo User ID
-  name          VARCHAR(100) NOT NULL,
-  role          ENUM('manager', 'staff') DEFAULT 'staff',
-  avatar_url    TEXT,
-  is_active     BOOLEAN DEFAULT TRUE,
-  created_at    TIMESTAMP DEFAULT NOW(),
-  updated_at    TIMESTAMP DEFAULT NOW()
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Platform identity (thay thế zalo_id cũ)
+  platform         VARCHAR(20) NOT NULL DEFAULT 'zalo',   -- 'zalo'|'telegram'|'discord'
+  platform_user_id VARCHAR(100),                           -- ID của user trên platform đó
+  -- Web login (cho Manager)
+  username         VARCHAR(50) UNIQUE,
+  password_hash    TEXT,
+  name             VARCHAR(100) NOT NULL,
+  role             user_role NOT NULL DEFAULT 'staff',
+  avatar_url       TEXT,
+  is_active        BOOLEAN DEFAULT TRUE,
+  login_attempts   INT DEFAULT 0,
+  locked_until     TIMESTAMP,
+  created_at       TIMESTAMP DEFAULT NOW(),
+  updated_at       TIMESTAMP DEFAULT NOW(),
+  UNIQUE (platform, platform_user_id)  -- cùng platform không trùng user ID
 );
 ```
 
 | Column | Type | Mô tả |
 |--------|------|-------|
-| `id` | UUID | Primary key |
-| `zalo_id` | VARCHAR | ID Zalo định danh người dùng |
-| `name` | VARCHAR | Tên hiển thị từ Zalo |
-| `role` | ENUM | `manager` hoặc `staff` |
+| `platform` | VARCHAR | Nền tảng: `zalo`, `telegram`, `discord`, `web` |
+| `platform_user_id` | VARCHAR | User ID trên platform (zalo_id, telegram user_id...) |
+| `username` | VARCHAR | Chỉ dùng cho Manager đăng nhập web |
+| `role` | ENUM | `admin`, `manager`, `staff` |
 
 ---
 
@@ -62,25 +75,26 @@ CREATE TABLE categories (
 
 ```sql
 CREATE TABLE records (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Thông tin nguồn Zalo
-  zalo_message_id VARCHAR(100) UNIQUE,   -- ID tin nhắn Zalo (tránh duplicate)
-  sender_id       UUID REFERENCES users(id),
-  sender_name     VARCHAR(100),          -- Cache tên tại thời điểm gửi
-  zalo_group_id   VARCHAR(100),          -- ID Zalo Group nguồn
+  -- Nguồn (platform-agnostic — thay thế zalo_message_id / zalo_group_id cũ)
+  platform             VARCHAR(20) NOT NULL DEFAULT 'zalo', -- 'zalo'|'telegram'|'discord'
+  platform_message_id  VARCHAR(100),        -- ID tin nhắn trên platform (tránh duplicate)
+  source_chat_id       VARCHAR(100),        -- ID group/channel/chat nguồn
+  source_chat_type     VARCHAR(20),         -- 'private'|'group'|'channel'
+  sender_id            UUID REFERENCES users(id),
+  sender_name          VARCHAR(100),        -- Cache tên tại thời điểm gửi
 
   -- Nội dung
-  image_url       TEXT,                  -- URL ảnh trên Storage
-  image_thumbnail TEXT,                  -- URL thumbnail nhỏ
-  ocr_text        TEXT,                  -- Text nhận dạng từ ảnh
-  note            TEXT,                  -- Ghi chú text kèm theo từ Zalo
+  image_url       TEXT,                     -- URL ảnh trên Storage (Signed URL)
+  image_thumbnail TEXT,                     -- URL thumbnail nhỏ
+  ocr_text        TEXT,                     -- Text nhận dạng từ ảnh
+  note            TEXT,                     -- Ghi chú text kèm theo
   category_id     UUID REFERENCES categories(id),
 
   -- Trạng thái
-  status          ENUM('new', 'reviewed', 'approved', 'flagged', 'deleted')
-                  DEFAULT 'new',
-  flag_reason     TEXT,                  -- Lý do flag (nếu có)
+  status          record_status NOT NULL DEFAULT 'new',
+  flag_reason     TEXT,
 
   -- Phê duyệt
   reviewed_by     UUID REFERENCES users(id),
@@ -89,21 +103,27 @@ CREATE TABLE records (
   approved_at     TIMESTAMP,
 
   -- OCR metadata
-  ocr_status      ENUM('pending', 'success', 'failed') DEFAULT 'pending',
-  ocr_confidence  DECIMAL(5,2),          -- Độ tin cậy OCR (0-100%)
+  ocr_status      ocr_status NOT NULL DEFAULT 'pending',
+  ocr_confidence  DECIMAL(5,2),
 
   -- Timestamps
-  received_at     TIMESTAMP NOT NULL,    -- Thời điểm nhận từ Zalo
+  received_at     TIMESTAMP NOT NULL,
   created_at      TIMESTAMP DEFAULT NOW(),
-  updated_at      TIMESTAMP DEFAULT NOW()
+  updated_at      TIMESTAMP DEFAULT NOW(),
+
+  UNIQUE (platform, platform_message_id)    -- Chống duplicate cross-platform
 );
 
--- Indexes cho tìm kiếm
-CREATE INDEX idx_records_sender    ON records(sender_id);
-CREATE INDEX idx_records_status    ON records(status);
-CREATE INDEX idx_records_received  ON records(received_at);
-CREATE INDEX idx_records_category  ON records(category_id);
-CREATE INDEX idx_records_fts       ON records USING gin(to_tsvector('simple', coalesce(note,'') || ' ' || coalesce(ocr_text,'')));
+-- Indexes
+CREATE INDEX idx_records_platform   ON records(platform);
+CREATE INDEX idx_records_sender     ON records(sender_id);
+CREATE INDEX idx_records_status     ON records(status);
+CREATE INDEX idx_records_received   ON records(received_at DESC);
+CREATE INDEX idx_records_category   ON records(category_id);
+CREATE INDEX idx_records_fts        ON records USING gin(
+  to_tsvector('simple',
+    coalesce(note,'') || ' ' || coalesce(ocr_text,'') || ' ' || coalesce(sender_name,'')
+  ));
 ```
 
 ---
@@ -152,19 +172,50 @@ CREATE TABLE report_jobs (
 
 ---
 
+## 📋 TABLE: platform_configs (MỚI)
+
+```sql
+CREATE TABLE platform_configs (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  platform   VARCHAR(20) NOT NULL UNIQUE,  -- 'zalo', 'telegram', 'discord'
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  config     JSONB NOT NULL DEFAULT '{}',  -- token/secrets lưu ở tầng app (không plain text)
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+| Column | Mô tả |
+|--------|-------|
+| `platform` | Tên nền tảng, unique |
+| `is_active` | Bật/tắt platform không cần restart server |
+| `config` | JSONB chứa metadata (không lưu token thật — token lấy từ env) |
+
+---
+
 ## 🔢 Ví dụ dữ liệu mẫu
 
 ```sql
--- Record mẫu
+-- Record từ Telegram
 INSERT INTO records (
-  zalo_message_id, sender_name, note, ocr_text, status, received_at
+  platform, platform_message_id, source_chat_id, source_chat_type,
+  sender_name, note, ocr_text, status, received_at
 ) VALUES (
-  'zalo_msg_001',
+  'telegram', '12345678', '-100123456789', 'group',
   'Nguyễn Văn A',
   'Hóa đơn mua vật tư tháng 4',
   'SỐ HĐ: 001234 | NGÀY: 15/04/2026 | TỔNG: 2,500,000đ',
   'new',
   '2026-04-15 09:30:00'
+);
+
+-- Record từ Zalo
+INSERT INTO records (
+  platform, platform_message_id, source_chat_id, source_chat_type,
+  sender_name, note, status, received_at
+) VALUES (
+  'zalo', 'zalo_msg_001', 'zalo_group_001', 'group',
+  'Trần Thị B', 'Báo cáo công việc ngày 15/4', 'new', NOW()
 );
 ```
 

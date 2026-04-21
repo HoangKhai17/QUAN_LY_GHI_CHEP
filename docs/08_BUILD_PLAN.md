@@ -241,8 +241,36 @@ npm install express-rate-limit
 
 ---
 
-## 📅 PHASE 1 — CORE BACKEND: ZALO PIPELINE
-> **Thời gian:** 5 ngày | **Mục tiêu:** Nhận tin nhắn Zalo → lưu DB tự động
+## 📅 PHASE 1 — CORE BACKEND: MULTI-PLATFORM CONNECTOR PIPELINE
+> **Thời gian:** 5 ngày | **Mục tiêu:** Nhận tin nhắn từ Telegram/Zalo → lưu DB tự động
+
+### Kiến trúc Connector Pattern (đã implement)
+
+```
+POST /webhook/telegram  ─►  TelegramConnector.verify() → .parse()  ─►
+POST /webhook/zalo      ─►  ZaloConnector.verify()     → .parse()  ─►  MessageProcessor → DB
+POST /webhook/discord   ─►  DiscordConnector (tương lai)           ─►
+
+src/connectors/
+├── index.js                  ← Registry: { zalo, telegram, discord... }
+├── normalized-message.js     ← Format chuẩn hóa dùng chung
+├── base.connector.js         ← Interface: verify() / parse() / downloadImage() / reply()
+├── zalo/
+│   ├── zalo.connector.js     ← HMAC-SHA256 verify, Zalo API download
+│   └── zalo.parser.js        ← Zalo payload → NormalizedMessage
+└── telegram/
+    ├── telegram.connector.js ← Secret token verify, getFile download
+    └── telegram.parser.js    ← Telegram Update → NormalizedMessage
+
+src/modules/webhook/
+├── webhook.router.js         ← POST /webhook/:platform (tự động route)
+└── message.processor.js      ← NormalizedMessage → OCR → DB → WebSocket
+```
+
+**Thêm platform mới sau này chỉ cần:**
+1. Tạo `src/connectors/<platform>/` implement BaseConnector
+2. Đăng ký 1 dòng trong `connectors/index.js`
+3. Thêm env var token vào `.env`
 
 ### Step 1.1 — Express app skeleton
 ```

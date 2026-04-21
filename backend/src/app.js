@@ -47,7 +47,9 @@ app.use('/api/records',   require('./modules/records/records.router'))
 app.use('/api/reports',   require('./modules/reports/reports.router'))
 app.use('/api/search',    require('./modules/search/search.router'))
 app.use('/api/notifications', require('./modules/notifications/notifications.router'))
-app.use('/webhook',       require('./modules/zalo/zalo.router'))
+
+// ── Multi-platform webhook (/webhook/zalo, /webhook/telegram, ...) ──
+app.use('/webhook',       require('./modules/webhook/webhook.router'))
 
 // ── Error handlers ───────────────────────────────────────────────
 app.use(notFound)

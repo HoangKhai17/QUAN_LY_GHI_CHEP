@@ -1,6 +1,6 @@
 # 🔐 THIẾT KẾ BẢO MẬT — QUAN LY GHI CHEP
 > Chuẩn tham chiếu: OWASP Top 10, ISO 27001, Nghị định 13/2023/NĐ-CP (PDPD Việt Nam)
-> Phiên bản: 1.0 | Cập nhật: 2026-04-20
+> Phiên bản: 2.0 | Cập nhật: 2026-04-21
 
 ---
 
@@ -41,7 +41,7 @@ INTERNET
 │  🔑 LAYER 2 — AUTHENTICATION & AUTHORIZATION             │
 │  ├─ JWT Access Token (15 phút) + Refresh Token (7 ngày)  │
 │  ├─ RBAC: Manager / Staff / Admin                        │
-│  └─ Zalo Webhook Signature Verification                   │
+│  └─ Webhook Signature Verification (per-platform: HMAC / Secret Token)                   │
 └───────────────────┬───────────────────────────────────────┘
                     │
                     ▼
@@ -102,7 +102,7 @@ INTERNET
 {
   "sub": "user_uuid",
   "role": "manager",           # Phân quyền
-  "group_ids": ["grp_001"],    # Zalo groups được phép
+  "platform": "telegram",       # Platform đăng nhập
   "iat": 1713600000,
   "exp": 1713600900,           # 15 phút
   "jti": "unique_token_id"     # Chống replay attack
@@ -138,9 +138,9 @@ INTERNET
 │  ├─ Tạo và tải báo cáo                                 │
 │  └─ Tìm kiếm trong phạm vi group                       │
 │                                                          │
-│  ROLE: staff (Nhân viên — dùng Zalo, không có web)     │
-│  ├─ Gửi data qua Zalo Group                            │
-│  └─ Nhận thông báo từ Bot (khi record bị flag)         │
+│  ROLE: staff (Nhân viên — dùng app nhắn tin, không có web)│
+│  ├─ Gửi data qua Telegram / Zalo / Discord             │
+│  └─ Nhận thông báo từ Bot về platform gốc (khi bị flag)│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -158,31 +158,38 @@ INTERNET
 
 ---
 
-## 🔗 ZALO WEBHOOK SECURITY
+## 🔗 WEBHOOK SECURITY (Multi-Platform)
 
-```python
-# Mỗi request từ Zalo có signature header
-# Phải verify trước khi xử lý
+Mỗi platform dùng cơ chế xác thực riêng — được xử lý trong Connector tương ứng:
 
-import hmac, hashlib
+| Platform | Cơ chế xác thực | Header |
+|----------|----------------|--------|
+| **Telegram** | Secret Token so sánh hằng thời gian | `X-Telegram-Bot-Api-Secret-Token` |
+| **Zalo** | HMAC-SHA256 signature | `X-Zalo-Signature` |
+| **Discord** | Bot Token verify | `X-Signature-Ed25519` (V1.1) |
 
-def verify_zalo_signature(payload: bytes, signature: str, secret: str) -> bool:
-    expected = hmac.new(
-        secret.encode(),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)  # Chống timing attack
+```js
+// Ví dụ: Zalo HMAC-SHA256 (trong ZaloConnector)
+verify(req) {
+  const signature = req.headers['x-zalo-signature'];
+  const expected = crypto
+    .createHmac('sha256', process.env.ZALO_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest('hex');
+  return crypto.timingSafeEqual(
+    Buffer.from(expected),
+    Buffer.from(signature)  // Chống timing attack
+  );
+}
 
-# Middleware FastAPI
-@app.middleware("http")
-async def zalo_webhook_guard(request: Request, call_next):
-    if request.url.path == "/webhook/zalo":
-        signature = request.headers.get("X-Zalo-Signature")
-        body = await request.body()
-        if not verify_zalo_signature(body, signature, ZALO_SECRET):
-            return JSONResponse(status_code=403, content={"error": "Invalid signature"})
-    return await call_next(request)
+// Ví dụ: Telegram Secret Token (trong TelegramConnector)
+verify(req) {
+  const token = req.headers['x-telegram-bot-api-secret-token'];
+  return crypto.timingSafeEqual(
+    Buffer.from(process.env.TELEGRAM_WEBHOOK_SECRET),
+    Buffer.from(token)
+  );
+}
 ```
 
 ---

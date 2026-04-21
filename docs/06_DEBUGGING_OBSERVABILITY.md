@@ -1,5 +1,5 @@
 # 🔍 DEBUGGING & OBSERVABILITY — QUAN LY GHI CHEP
-> Phiên bản: 1.0 | Cập nhật: 2026-04-20
+> Phiên bản: 2.0 | Cập nhật: 2026-04-21
 
 ---
 
@@ -148,22 +148,29 @@ Sentry.init({
 
 ---
 
-### C. Zalo Webhook Debugging
+### C. Webhook Debugging (Multi-Platform)
 
 ```
-Thách thức: Zalo chỉ gọi được server có IP public
+Thách thức: Zalo và Telegram đều chỉ gọi được server có IP public
 
-Giải pháp dev:
-┌──────────────────────────────────────────────┐
-│  ngrok http 8000                              │
-│  → Tạo URL public: https://abc.ngrok.io      │
-│  → Cấu hình URL này trong Zalo OA Dashboard  │
-│                                              │
-│  Theo dõi requests tại:                      │
-│  http://localhost:4040 (ngrok inspector)     │
-│  → Xem full request/response                 │
-│  → Replay lại request (rất tiện debug)       │
-└──────────────────────────────────────────────┘
+Giải pháp dev — dùng ngrok:
+┌──────────────────────────────────────────────────────────┐
+│  ngrok http 3000                                          │
+│  → Tạo URL public: https://abc.ngrok.io                  │
+│                                                          │
+│  Cấu hình webhook URL:                                   │
+│  ├─ Telegram: setWebhook tự động khi khởi động server    │
+│  │    POST https://api.telegram.org/bot<TOKEN>/setWebhook│
+│  │    url = https://abc.ngrok.io/webhook/telegram        │
+│  │                                                       │
+│  └─ Zalo OA: cấu hình trong Zalo OA Dashboard           │
+│       url = https://abc.ngrok.io/webhook/zalo            │
+│                                                          │
+│  Theo dõi requests tại:                                  │
+│  http://localhost:4040 (ngrok inspector)                 │
+│  → Xem full request/response cho mọi platform           │
+│  → Replay lại request (rất tiện debug)                  │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -193,7 +200,8 @@ CRITICAL    Hệ thống sắp sập                      Disk full, DB unreacha
   "environment": "production",
   "trace_id": "abc123",
   "record_id": "uuid-xxx",
-  "sender_zalo_id": "zalo_123",
+  "platform": "telegram",
+  "platform_user_id": "tg_123",
   "has_image": true,
   "ocr_status": "success",
   "processing_ms": 245
@@ -274,9 +282,9 @@ TECHNICAL METRICS
 ### Môi trường
 
 ```
-Local Dev    → pytest + ipdb + ngrok + FastAPI /docs
-Staging      → Sentry (dev env) + Grafana + test data Zalo
-Production   → Sentry (prod) + Grafana alerts + Real Zalo OA
+Local Dev    → Jest + ngrok + REST client (test webhook Telegram/Zalo)
+Staging      → Sentry (dev env) + Grafana + test data Telegram Bot
+Production   → Sentry (prod) + Grafana alerts + Real Telegram Bot + Zalo OA
 ```
 
 ---
@@ -286,7 +294,9 @@ Production   → Sentry (prod) + Grafana alerts + Real Zalo OA
 ```bash
 # .env.example (commit lên git)
 APP_ENV=development
-DATABASE_URL=postgresql://user:pass@localhost:5432/tnd_db
+DATABASE_URL=postgresql://user:pass@localhost:5433/tnd_db
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=
 ZALO_OA_TOKEN=
 ZALO_SECRET=
 AWS_S3_BUCKET=
@@ -310,12 +320,18 @@ SELECT query, mean_exec_time, calls
 FROM pg_stat_statements
 ORDER BY mean_exec_time DESC LIMIT 10;
 
+# Test webhook Telegram locally
+curl -X POST http://localhost:3000/webhook/telegram \
+  -H "Content-Type: application/json" \
+  -H "X-Telegram-Bot-Api-Secret-Token: <your_secret>" \
+  -d '{"update_id":1,"message":{"message_id":1,"from":{"id":123,"first_name":"Test"},"chat":{"id":-456,"type":"group"},"text":"Hello"}}'
+
 # Test webhook Zalo locally
-curl -X POST http://localhost:8000/webhook/zalo \
+curl -X POST http://localhost:3000/webhook/zalo \
   -H "Content-Type: application/json" \
   -H "X-Zalo-Signature: <computed_sig>" \
   -d '{"event_name":"user_send_image","sender":{"id":"123"}}'
 
-# Kiểm tra Sentry hoạt động
-python -c "import sentry_sdk; sentry_sdk.capture_message('test')"
+# Kiểm tra danh sách platform hoạt động
+curl http://localhost:3000/webhook/platforms
 ```

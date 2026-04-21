@@ -21,17 +21,26 @@ Test từng phần nhỏ, không build "hết rồi test"
 QUAN_LY_GHI_CHEP/
 ├── backend/                   ← Node.js + Express
 │   ├── src/
-│   │   ├── config/            ← env, DB config
+│   │   ├── config/            ← env, DB config, logger
 │   │   ├── db/
-│   │   │   ├── migrations/    ← SQL migration files (001→006)
+│   │   │   ├── migrations/    ← SQL migration files (001→008)
 │   │   │   └── seeds/         ← seed data
 │   │   ├── middlewares/
 │   │   │   ├── auth.middleware.js      ← JWT verify
 │   │   │   ├── rbac.middleware.js      ← Phân quyền role
-│   │   │   ├── rateLimiter.js          ← Rate limiting
-│   │   │   └── zaloSignature.js        ← HMAC-SHA256 verify
+│   │   │   └── errorHandler.js         ← Global error handler
+│   │   ├── connectors/                 ← Connector Pattern (đa nền tảng)
+│   │   │   ├── index.js               ← Registry: { telegram, zalo, ... }
+│   │   │   ├── normalized-message.js  ← Format chuẩn hóa
+│   │   │   ├── base.connector.js      ← Interface: verify/parse/download/reply
+│   │   │   ├── telegram/
+│   │   │   │   ├── telegram.connector.js  ← Secret token verify, getFile API
+│   │   │   │   └── telegram.parser.js     ← Update → NormalizedMessage
+│   │   │   └── zalo/
+│   │   │       ├── zalo.connector.js      ← HMAC-SHA256 verify, OA API
+│   │   │       └── zalo.parser.js         ← Payload → NormalizedMessage
 │   │   ├── modules/
-│   │   │   ├── zalo/          ← Webhook receiver, parser
+│   │   │   ├── webhook/       ← Dynamic webhook router + MessageProcessor
 │   │   │   ├── records/       ← CRUD records
 │   │   │   ├── reports/       ← Tạo báo cáo
 │   │   │   ├── search/        ← Full-text search
@@ -131,72 +140,62 @@ docker-compose up -d
 ```
 
 ### Step 0.3 — Database migrations
-Tạo và chạy theo thứ tự:
+Tạo và chạy theo thứ tự (đã hoàn thành):
 
 ```
 backend/src/db/migrations/
-├── 001_create_users.sql
+├── 001_create_users.sql          ← platform + platform_user_id (platform-agnostic)
 ├── 002_create_categories.sql
-├── 003_create_records.sql
+├── 003_create_records.sql        ← platform + platform_message_id (platform-agnostic)
 ├── 004_create_edit_logs.sql
-├── 005_create_report_jobs.sql
-└── 006_create_audit_logs.sql    ← BẮT BUỘC (security compliance)
-```
-
-**Migration 006 — audit_logs:**
-```sql
-CREATE TABLE audit_logs (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID REFERENCES users(id),
-  action      VARCHAR(50) NOT NULL,   -- 'approve','flag','delete','login','edit'
-  resource    VARCHAR(50),            -- 'record','user','report'
-  resource_id UUID,
-  old_data    JSONB,
-  new_data    JSONB,
-  ip_address  INET,
-  user_agent  TEXT,
-  created_at  TIMESTAMP DEFAULT NOW()
-);
--- IMMUTABLE: không có UPDATE/DELETE quyền trên bảng này
--- Dùng PostgreSQL RLS để enforce
-ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY audit_insert_only ON audit_logs FOR INSERT WITH CHECK (true);
+├── 005_create_report_jobs.sql    ← có filter_platform
+├── 006_create_audit_logs.sql     ← BẮT BUỘC (RLS immutable)
+├── 007_platform_agnostic.sql     ← ADD COLUMN + migrate data (đã chạy)
+└── 008_cleanup_zalo_columns.sql  ← DROP cột Zalo cũ (đã chạy)
 ```
 
 **Script migration runner** (`backend/src/db/migrate.js`):
-```js
-// Chạy tuần tự từng file .sql theo thứ tự số
-// node src/db/migrate.js
+- Tracking qua bảng `_migrations` — chỉ chạy file chưa apply
+- Dùng transaction: rollback tự động nếu file lỗi
+
+```bash
+cd backend && npm run migrate
 ```
 
-**Kiểm tra:** Connect DBeaver/TablePlus vào localhost:5432, xác nhận đủ 5 bảng.
+**Kiểm tra:** Connect DBeaver/TablePlus vào `localhost:5433`, xác nhận đủ 8 bảng:
+`users`, `refresh_tokens`, `categories`, `records`, `edit_logs`, `report_jobs`, `audit_logs`, `platform_configs`
 
 ### Step 0.4 — Cấu hình .env
 ```env
 # Server
 PORT=3000
 NODE_ENV=development
+FRONTEND_URL=http://localhost:5173
 
-# Database
+# Database (Docker port 5433 để tránh conflict với native PG)
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=5433
 DB_NAME=quan_ly_ghi_chep
 DB_USER=admin
 DB_PASSWORD=secret
 
 # JWT — Access Token ngắn + Refresh Token dài (theo 05_SECURITY.md)
 JWT_ACCESS_SECRET=your_access_secret_here
-JWT_ACCESS_EXPIRES=15m          # 15 phút
+JWT_ACCESS_EXPIRES=15m
 JWT_REFRESH_SECRET=your_refresh_secret_here
-JWT_REFRESH_EXPIRES=7d          # 7 ngày
+JWT_REFRESH_EXPIRES=7d
 
-# Zalo
+# ── Telegram Bot (ưu tiên — dễ setup, nhận 100% message trong group) ──
+TELEGRAM_BOT_TOKEN=             # Lấy từ @BotFather
+TELEGRAM_WEBHOOK_SECRET=        # Random string bất kỳ (tự đặt)
+
+# ── Zalo OA (tùy chọn — cần GPKD, chỉ nhận khi @mention) ──
 ZALO_OA_TOKEN=
-ZALO_WEBHOOK_SECRET=            # Dùng để verify HMAC-SHA256
+ZALO_WEBHOOK_SECRET=
 
 # Storage (chọn 1)
-CLOUDINARY_URL=
-# hoặc AWS_S3_BUCKET= / AWS_REGION= / AWS_ACCESS_KEY_ID= / AWS_SECRET_ACCESS_KEY=
+CLOUDINARY_URL=                 # cloudinary://api_key:api_secret@cloud_name
+# hoặc: AWS_S3_BUCKET= / AWS_REGION= / AWS_ACCESS_KEY_ID= / AWS_SECRET_ACCESS_KEY=
 SIGNED_URL_EXPIRES=3600         # URL ảnh hết hạn sau 1 giờ
 
 # OCR
@@ -230,7 +229,7 @@ app.use(helmet())  // Tự động thêm X-Frame-Options, X-Content-Type, HSTS..
 const limiter = rateLimit({ windowMs: 60_000, max: 100 })
 app.use('/api/', limiter)
 
-// Webhook có rate limit riêng (loose hơn vì Zalo gọi nhiều)
+// Webhook có rate limit riêng (loose hơn vì platform gọi nhiều)
 const webhookLimiter = rateLimit({ windowMs: 60_000, max: 500 })
 app.use('/webhook/', webhookLimiter)
 ```
@@ -242,172 +241,174 @@ npm install express-rate-limit
 ---
 
 ## 📅 PHASE 1 — CORE BACKEND: MULTI-PLATFORM CONNECTOR PIPELINE
-> **Thời gian:** 5 ngày | **Mục tiêu:** Nhận tin nhắn từ Telegram/Zalo → lưu DB tự động
+> **Thời gian:** 5 ngày | **Mục tiêu:** Nhận tin nhắn từ Telegram (ưu tiên) + Zalo → lưu DB tự động
 
-### Kiến trúc Connector Pattern (đã implement)
+### Kiến trúc Connector Pattern (đã implement xong)
 
 ```
 POST /webhook/telegram  ─►  TelegramConnector.verify() → .parse()  ─►
-POST /webhook/zalo      ─►  ZaloConnector.verify()     → .parse()  ─►  MessageProcessor → DB
-POST /webhook/discord   ─►  DiscordConnector (tương lai)           ─►
+POST /webhook/zalo      ─►  ZaloConnector.verify()     → .parse()  ─►  MessageProcessor → DB → WebSocket
+POST /webhook/<new>     ─►  <NewConnector>             → .parse()  ─►  (thêm platform = 1 file mới)
 
 src/connectors/
-├── index.js                  ← Registry: { zalo, telegram, discord... }
-├── normalized-message.js     ← Format chuẩn hóa dùng chung
-├── base.connector.js         ← Interface: verify() / parse() / downloadImage() / reply()
-├── zalo/
-│   ├── zalo.connector.js     ← HMAC-SHA256 verify, Zalo API download
-│   └── zalo.parser.js        ← Zalo payload → NormalizedMessage
-└── telegram/
-    ├── telegram.connector.js ← Secret token verify, getFile download
-    └── telegram.parser.js    ← Telegram Update → NormalizedMessage
+├── index.js                  ← Registry: { telegram, zalo }
+├── normalized-message.js     ← NormalizedMessage contract (platform-agnostic)
+├── base.connector.js         ← Abstract: verify() / parse() / downloadImage() / reply()
+├── telegram/
+│   ├── telegram.connector.js ← Secret-token verify, setWebhook, getFile download, reply
+│   └── telegram.parser.js    ← Update → NormalizedMessage
+└── zalo/
+    ├── zalo.connector.js     ← HMAC-SHA256 verify, OA API download, reply
+    └── zalo.parser.js        ← Payload → NormalizedMessage
 
 src/modules/webhook/
-├── webhook.router.js         ← POST /webhook/:platform (tự động route)
-└── message.processor.js      ← NormalizedMessage → OCR → DB → WebSocket
+├── webhook.router.js         ← POST /webhook/:platform (dynamic route)
+│                                GET  /webhook/platforms (list active)
+└── message.processor.js      ← NormalizedMessage → duplicate check → upsert user
+                                 → download+upload image → OCR → INSERT record → emit WS
 ```
 
-**Thêm platform mới sau này chỉ cần:**
-1. Tạo `src/connectors/<platform>/` implement BaseConnector
+**Ưu điểm:** Thêm platform mới (Discord, Slack...) chỉ cần:
+1. Tạo `src/connectors/<platform>/` implement `BaseConnector`
 2. Đăng ký 1 dòng trong `connectors/index.js`
 3. Thêm env var token vào `.env`
 
-### Step 1.1 — Express app skeleton
-```
-src/app.js              ← Express setup, middleware, route loader
-src/config/db.js        ← pg Pool connection
-src/config/env.js       ← validate required env vars
-```
-
-Cấu trúc mỗi module:
-```
-src/modules/records/
-├── records.router.js   ← route definitions
-├── records.service.js  ← business logic
-└── records.repo.js     ← DB queries (raw SQL với pg)
-```
-
-### Step 1.2 — Zalo Webhook receiver
-
-**File:** `src/modules/zalo/zalo.router.js`
+### Step 1.1 — Express app + config (đã xong)
 
 ```
-POST /webhook/zalo
-  ├── Xác thực chữ ký Zalo (HMAC-SHA256) — BẮT BUỘC
-  ├── Parse body JSON từ Zalo
-  └── Gọi zalo.service.js để xử lý
+src/app.js              ← Express + Helmet + CORS + rate limiting + Socket.io + routes
+src/config/db.js        ← pg Pool (port 5433), slow query warning >1s
+src/config/env.js       ← Validate required env vars on startup
+src/config/logger.js    ← Winston: JSON (prod) / colorized (dev)
 ```
 
-**Middleware xác thực chữ ký — `src/middlewares/zaloSignature.js`:**
+### Step 1.2 — Connector Layer (đã xong)
+
+**Telegram** (ưu tiên — không cần GPKD, nhận 100% message trong group):
+```
+TelegramConnector
+  ├── verify(req)         → timingSafeEqual header X-Telegram-Bot-Api-Secret-Token
+  ├── parse(body)         → parseTelegramUpdate() → NormalizedMessage
+  │                          Photo array → lấy file_id ảnh lớn nhất
+  │                          Caption → text_note
+  ├── downloadImage(fileId) → getFile API → download buffer
+  ├── reply(chatId, text)   → sendMessage API
+  └── registerWebhook(url)  → setWebhook với secret token (tự gọi khi server start)
+```
+
+**Zalo OA** (tùy chọn — cần GPKD, chỉ nhận khi @mention trong group):
+```
+ZaloConnector
+  ├── verify(req)         → HMAC-SHA256 X-Zalo-Signature
+  ├── parse(body)         → parseZaloPayload() → NormalizedMessage
+  ├── downloadImage(fileId) → OA Access Token API
+  └── reply(userId, text)   → OA sendMessage API
+```
+
+**NormalizedMessage — contract dùng chung:**
 ```js
-const crypto = require('crypto')
-
-function verifyZaloSignature(req, res, next) {
-  const signature = req.headers['x-zalo-signature']
-  const body = JSON.stringify(req.body)
-  const expected = crypto
-    .createHmac('sha256', process.env.ZALO_WEBHOOK_SECRET)
-    .update(body)
-    .digest('hex')
-
-  // Dùng timingSafeEqual để chống timing attack
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(signature || ''),
-    Buffer.from(expected)
-  )
-  if (!isValid) return res.status(403).json({ error: 'Invalid signature' })
-  next()
+{
+  platform:            'telegram' | 'zalo' | 'discord',
+  platform_message_id: string,    // chống duplicate
+  platform_user_id:    string,
+  sender_name:         string,
+  source_chat_id:      string,
+  source_chat_type:    'private' | 'group' | 'channel',
+  message_type:        'image' | 'text' | 'image_text' | 'other',
+  image_file_id:       string | null,
+  image_url:           string | null,
+  text_note:           string | null,
+  received_at:         Date,
+  raw:                 object
 }
 ```
 
-**Ngrok cho local dev:**
-```bash
-# Cài ngrok: https://ngrok.com
-ngrok http 3000
-# → URL: https://abc123.ngrok.io
-# → Vào Zalo OA Dashboard → cấu hình Webhook URL = https://abc123.ngrok.io/webhook/zalo
-# → Xem request log: http://localhost:4040 (ngrok inspector — có thể replay)
+### Step 1.3 — Webhook Router (đã xong)
+
+**File:** `src/modules/webhook/webhook.router.js`
+
+```
+POST /webhook/:platform
+  → Lookup connector từ registry (platform = 'telegram' | 'zalo' | ...)
+  → connector.verify(req) — 403 nếu fail
+  → Respond 200 NGAY (platform cần response nhanh < 5s)
+  → Background: connector.parse(body) → MessageProcessor.process(msg, connector, io)
+
+GET /webhook/platforms
+  → Trả về danh sách platform đang active
 ```
 
-**Zalo message types cần handle:**
-| Type từ Zalo | Hành động |
-|-------------|-----------|
-| `text` | Lưu note, không có ảnh |
-| `image` | Download ảnh, chạy OCR |
-| `photo` + caption | Lưu cả ảnh + text |
-| `sticker`, `audio`, `video` | Log & bỏ qua |
+### Step 1.4 — MessageProcessor (đã xong)
 
-**Lưu ý:** Zalo OA API cần verify webhook URL trước khi nhận events thật.
-Dùng `ngrok` để expose localhost khi dev.
+**File:** `src/modules/webhook/message.processor.js`
 
-### Step 1.3 — Message Parser
-
-**File:** `src/modules/zalo/zalo.parser.js`
-
-```js
-function parseZaloMessage(payload) {
-  return {
-    zalo_message_id: payload.event_data.message.msg_id,
-    sender_zalo_id: payload.sender.id,
-    sender_name: payload.sender.display_name,
-    zalo_group_id: payload.recipient.id,
-    message_type: detectType(payload),  // 'image_text' | 'image_only' | 'text_only' | 'ignore'
-    image_attachment: extractImage(payload),
-    text_note: extractText(payload),
-    received_at: new Date(payload.timestamp * 1000)
-  }
-}
+```
+process(normalizedMsg, connector, io)
+  1. Kiểm tra duplicate: SELECT WHERE platform = ? AND platform_message_id = ?
+  2. Upsert user: INSERT ... ON CONFLICT (platform, platform_user_id) DO UPDATE
+  3. Download ảnh qua connector.downloadImage() → upload Storage → Signed URL
+  4. OCR → ocrService.extractText(imageUrl)
+  5. INSERT record (platform, platform_message_id, source_chat_id, sender_id, ...)
+  6. io.emit('new_record', { record_id, sender_name, platform, ... })
 ```
 
-### Step 1.4 — Storage Service
+### Step 1.5 — Storage Service
 
 **File:** `src/services/storage.service.js`
 
 ```
-uploadImage(buffer, filename)
-  └── Upload lên Cloudinary / S3
-  └── Trả về { image_url, thumbnail_url }
+uploadImage(buffer, filename) → { image_url, thumbnail_url }
+  └── Cloudinary: upload stream + auto thumbnail bằng transformation URL
+  └── S3: putObject + getSignedUrl (expires = SIGNED_URL_EXPIRES)
 ```
 
-**Lưu ý Cloudinary:** Tự động tạo thumbnail bằng transformation URL, không cần upload riêng.
+```bash
+# Cloudinary (dễ nhất, free tier 25GB)
+npm install cloudinary
+```
 
-### Step 1.5 — OCR Service
+### Step 1.6 — OCR Service
 
 **File:** `src/services/ocr.service.js`
 
 ```
-extractText(imageUrl)
-  ├── Gọi Google Vision API annotateImage
-  ├── [Success] → return { text, confidence }
-  └── [Error]   → return { text: null, confidence: 0, error: msg }
+extractText(imageUrl) → { text, confidence, status }
+  ├── Primary:  Google Vision API annotateImage (chính xác nhất)
+  ├── Fallback: Tesseract.js (offline, không cần key)
+  └── Error:    return { text: null, confidence: 0, status: 'failed' }
 ```
 
-**Fallback:** Nếu không có Google Vision key, dùng Tesseract.js (offline, chậm hơn):
 ```bash
-npm install tesseract.js
+# Chọn 1 trong 2:
+npm install @google-cloud/vision     # Cần Google Cloud key file
+npm install tesseract.js              # Offline, không cần key
 ```
 
-### Step 1.6 — Zalo Service (orchestrator)
+### Step 1.7 — Ngrok cho local testing
 
-**File:** `src/modules/zalo/zalo.service.js`
+Telegram và Zalo đều cần HTTPS public URL để gọi webhook:
 
+```bash
+# Cài ngrok: https://ngrok.com/download
+ngrok http 3000
+# → URL: https://abc123.ngrok.io
+
+# Telegram: server tự động setWebhook khi khởi động nếu TELEGRAM_BOT_TOKEN có
+# Kiểm tra: GET https://api.telegram.org/bot<TOKEN>/getWebhookInfo
+
+# Zalo: vào Zalo OA Dashboard → cấu hình webhook URL thủ công
+# https://abc123.ngrok.io/webhook/zalo
+
+# Xem request log realtime: http://localhost:4040 (có thể replay)
 ```
-processIncomingMessage(parsedMsg)
-  1. Kiểm tra duplicate (zalo_message_id đã tồn tại chưa?)
-  2. Upsert user vào bảng users (tạo mới nếu chưa có)
-  3. Nếu có ảnh:
-     a. Download ảnh từ Zalo API
-     b. Upload lên Storage → lấy image_url
-     c. Chạy OCR → lấy ocr_text
-  4. INSERT vào bảng records (status = 'new')
-  5. Emit WebSocket event 'new_record' cho Dashboard
-```
 
-**Kiểm tra Phase 1:**
-- [ ] Gửi ảnh vào Zalo Group → record xuất hiện trong DB
-- [ ] Gửi text vào Zalo Group → record lưu note
-- [ ] Gửi sticker → không tạo record
-- [ ] Duplicate message → không insert lần 2
+**Kiểm tra Phase 1 — Telegram (không cần Zalo):**
+- [ ] `npm run dev` → server start → Telegram setWebhook thành công
+- [ ] Gửi ảnh vào Telegram group/chat với Bot → record xuất hiện trong DB
+- [ ] Gửi text vào Telegram → record lưu note, image trống
+- [ ] Gửi sticker/voice → KHÔNG tạo record
+- [ ] Gửi lại cùng message → KHÔNG insert duplicate
+- [ ] `GET /webhook/platforms` → trả về `["telegram"]`
 
 ---
 
@@ -488,6 +489,7 @@ Middleware `requireAuth` dùng cho tất cả routes bên dưới.
 GET  /api/records
   Query params:
     status=new|reviewed|approved|flagged
+    platform=telegram|zalo|discord       ← filter theo platform
     sender_id=uuid
     category_id=uuid
     date_from=YYYY-MM-DD
@@ -501,7 +503,7 @@ GET  /api/records/:id
 
 PATCH /api/records/:id/status
   Body: { status: 'approved'|'flagged', flag_reason?: string }
-  Side effect: nếu flagged → gửi thông báo Zalo lại cho nhân viên
+  Side effect: nếu flagged → connector.reply() gửi về đúng platform gốc
 
 PATCH /api/records/:id
   Body: { note?, category_id? }
@@ -728,7 +730,7 @@ onDelete(recordId)
 **File:** `backend/src/modules/notifications/socket.js`
 
 ```js
-// Khi backend xử lý xong record mới từ Zalo:
+// Khi backend xử lý xong record mới từ bất kỳ platform:
 io.emit('new_record', {
   record: { id, sender_name, received_at, status },
   count: await getPendingCount()
@@ -968,11 +970,20 @@ logger.error('db.connection.failed', { error: err.message })
 # Xem log realtime
 docker compose logs -f backend --tail=100
 
-# Test webhook Zalo locally (không cần Zalo thật)
+# Test webhook Telegram locally
+curl -X POST http://localhost:3000/webhook/telegram \
+  -H "Content-Type: application/json" \
+  -H "X-Telegram-Bot-Api-Secret-Token: <TELEGRAM_WEBHOOK_SECRET>" \
+  -d '{"update_id":1,"message":{"message_id":1,"from":{"id":123,"first_name":"Nguyen A"},"chat":{"id":-456,"type":"group"},"text":"Test ghi chú"}}'
+
+# Test webhook Zalo locally
 curl -X POST http://localhost:3000/webhook/zalo \
   -H "Content-Type: application/json" \
-  -H "X-Zalo-Signature: <computed>" \
+  -H "X-Zalo-Signature: <computed_hmac>" \
   -d '{"event_name":"user_send_image","sender":{"id":"123","display_name":"Nguyen A"}}'
+
+# Kiểm tra danh sách platform hoạt động
+curl http://localhost:3000/webhook/platforms
 
 # Xem slow queries PostgreSQL
 SELECT query, mean_exec_time, calls
@@ -995,7 +1006,7 @@ ORDER BY mean_exec_time DESC LIMIT 10;
 ### Step 9.2 — Empty States
 
 ```
-RecordList trống → "Chưa có ghi chép nào. Nhân viên gửi ảnh qua Zalo để bắt đầu."
+RecordList trống → "Chưa có ghi chép nào. Nhân viên gửi ảnh qua Telegram hoặc Zalo để bắt đầu."
 Search không có kết quả → "Không tìm thấy kết quả phù hợp"
 Quick Review hết → "Tuyệt! Đã xem hết rồi."
 ```
@@ -1020,7 +1031,7 @@ backend/src/db/seeds/seed_demo.js
 □ HTTPS enforced — HTTP redirect 301 sang HTTPS
 □ Helmet headers active (X-Frame-Options: DENY, CSP, HSTS...)
 □ Rate limiting đã cấu hình cho /api/ và /webhook/
-□ Zalo webhook signature verification hoạt động
+□ Webhook signature verification hoạt động (Telegram secret token + Zalo HMAC)
 □ .env, credentials/ không có trong git (npm audit secrets)
 □ Database không expose ra internet (chỉ private network)
 □ S3/Cloudinary bucket ở chế độ Private (không public)
@@ -1037,7 +1048,8 @@ backend/src/db/seeds/seed_demo.js
 - [ ] Frontend: Build static files (`npm run build`) → serve qua Nginx
 - [ ] Cấu hình HTTPS (Nginx + Let's Encrypt / Cloudflare)
 - [ ] Môi trường production `.env` (không copy từ dev)
-- [ ] Zalo OA Webhook URL cập nhật sang production URL
+- [ ] Telegram Webhook URL cập nhật sang production URL (auto qua setWebhook khi start)
+- [ ] Zalo OA Webhook URL cập nhật sang production URL (thủ công qua OA Dashboard)
 - [ ] Sentry DSN production khác với development
 - [ ] Deploy server tại Việt Nam (VNG Cloud / FPT Cloud) nếu cần tuân thủ Nghị định 13/2023
 
@@ -1047,8 +1059,8 @@ backend/src/db/seeds/seed_demo.js
 
 | Phase | Nội dung | Thời gian | Kết quả kiểm tra |
 |-------|----------|-----------|-----------------|
-| 0 | Foundation & DB Setup (6 bảng + Security) | 2 ngày | Docker + DB + Security headers |
-| 1 | Zalo Pipeline + OCR + ngrok | 5 ngày | Gửi ảnh Zalo → record vào DB |
+| 0 | Foundation & DB Setup (8 bảng + Security) | 2 ngày | Docker + DB + Security headers |
+| 1 | Multi-Platform Connector (Telegram+Zalo) + OCR + ngrok | 5 ngày | Gửi ảnh Telegram → record vào DB |
 | 2 | Backend API đầy đủ + JWT + Audit | 4 ngày | Postman test all endpoints |
 | 3 | Frontend Auth + Layout + Sentry | 2 ngày | Login (Access+Refresh), layout đẹp |
 | 4 | Dashboard & Review (Signed URL) | 4 ngày | Duyệt/Flag/Sửa được records |
@@ -1066,7 +1078,7 @@ backend/src/db/seeds/seed_demo.js
 
 ```
 Phase 0 (DB)
-    └─► Phase 1 (Zalo Pipeline)
+    └─► Phase 1 (Multi-Platform Connector Pipeline)
     └─► Phase 2 (API)
             └─► Phase 3 (Frontend Login)
                     └─► Phase 4 (Dashboard)
@@ -1124,21 +1136,22 @@ DB thêm:
 
 **Kết quả:** Dashboard hiển thị bảng có cột động theo từng category (hóa đơn: Số HĐ / Nhà CC / Số tiền).
 
-### 🔴 IMP-02: Zalo Bot Conversational (Ưu tiên cao)
+### 🔴 IMP-02: Bot Conversational đa nền tảng (Ưu tiên cao)
 
 ```
 Thay vì: nhân viên gửi ảnh + text tự do (không cấu trúc)
-Thành:   bot dẫn dắt từng bước
+Thành:   bot dẫn dắt từng bước (hoạt động trên Telegram và Zalo)
 
-Flow:
-NV: "/hoadon" (hoặc gõ "hóa đơn")
+Flow (Telegram hoặc Zalo — cùng logic):
+NV: "/hoadon"
 Bot: "Vui lòng gửi ảnh hóa đơn"
 NV: [Ảnh]
 Bot: "Số tiền là bao nhiêu?"
 NV: "2.500.000"
 Bot: "✅ Đã lưu hóa đơn 2.500.000đ"
 
-→ Cần: Zalo Bot session state (lưu Redis) + conversation flow engine
+→ Cần: session state lưu Redis (key: platform:user_id) + conversation flow engine
+→ Connector Pattern cho phép implement 1 lần, deploy trên cả Telegram lẫn Zalo
 ```
 
 ### 🟡 IMP-03: Digest Notification (Ưu tiên trung bình)

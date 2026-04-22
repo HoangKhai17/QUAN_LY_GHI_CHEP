@@ -6,6 +6,8 @@ const helmet = require('helmet')
 const morgan = require('morgan')
 const rateLimit = require('express-rate-limit')
 const { Server: SocketIO } = require('socket.io')
+const swaggerUi = require('swagger-ui-express')
+const swaggerSpec = require('./config/swagger')
 
 const logger = require('./config/logger')
 const { errorHandler, notFound } = require('./middlewares/errorHandler')
@@ -28,8 +30,20 @@ app.set('trust proxy', 1)
 
 // ── Security & Middleware ────────────────────────────────────────
 app.use(helmet())
+const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:5173',
+  'http://localhost:3000',
+  // Ngrok URL khi dev (WEBHOOK_BASE_URL bỏ trailing slash)
+  ...(process.env.WEBHOOK_BASE_URL
+    ? [process.env.WEBHOOK_BASE_URL.replace(/\/+$/, '')]
+    : []),
+]
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    // Cho phép: no-origin (curl/Postman), hoặc origin trong whitelist
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    cb(new Error(`CORS blocked: ${origin}`))
+  },
   credentials: true,
 }))
 app.use(express.json({ limit: '10mb' }))
@@ -42,10 +56,21 @@ const webhookLimiter = rateLimit({ windowMs: 60_000, max: 500, standardHeaders: 
 app.use('/api/', apiLimiter)
 app.use('/webhook/', webhookLimiter)
 
+// ── Docs ─────────────────────────────────────────────────────────
+// helmet CSP mặc định block inline scripts của Swagger UI — tắt cho route /api-docs
+app.use('/api-docs', (req, res, next) => {
+  res.setHeader('Content-Security-Policy', '')
+  next()
+}, swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'Quản Lý Ghi Chép — API Docs',
+  swaggerOptions: { persistAuthorization: true },
+}))
+
 // ── Routes ───────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', env: process.env.NODE_ENV }))
 
 app.use('/api/auth',      require('./modules/auth/auth.router'))
+app.use('/api/users',     require('./modules/users/users.router'))
 app.use('/api/records',   require('./modules/records/records.router'))
 app.use('/api/reports',   require('./modules/reports/reports.router'))
 app.use('/api/search',    require('./modules/search/search.router'))

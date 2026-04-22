@@ -8,6 +8,7 @@
     "dev": "nodemon src/app.js",
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seeds/seed_demo.js",
+    "create-admin": "node src/db/seeds/create_admin.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch"
   },
@@ -34,6 +35,7 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "socket.io": "^4.8.3",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^14.0.0",
     "winston": "^3.19.0"
   },

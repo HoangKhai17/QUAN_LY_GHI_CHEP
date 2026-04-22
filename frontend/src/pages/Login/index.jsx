@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import useAuthStore from '../../store/auth.store'
+import logoImg from '../../assets/logo.png'
 import './Login.css'
 
 // Icons inline — không import thêm lib chỉ cho 2 icon nhỏ
@@ -92,7 +93,7 @@ export default function LoginPage() {
         {/* Brand row */}
         <div className="brand">
           <div className="logoWrap">
-            <img src="/logo.png" alt="BBO logo" onError={(e) => { e.target.style.display = 'none' }} />
+            <img src={logoImg} alt="BBO logo" />
           </div>
           <div className="brandText">
             <div className="system">Internal System</div>
@@ -173,7 +174,7 @@ export default function LoginPage() {
           </div>
 
           {/* Submit */}
-          <button type="submit" className="cta" disabled={loading || !username || !password}>
+          <button type="submit" className="cta" disabled={loading}>
             {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
             {!loading && <IconArrow />}
           </button>

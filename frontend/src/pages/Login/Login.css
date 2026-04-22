@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px 80px;
+  padding: 40px 20px;        /* gốc: 40px 20px — không có bottom thừa */
   overflow: hidden;
   background: var(--bg);
   font-family: 'Montserrat', -apple-system, sans-serif;
@@ -36,9 +36,9 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 900px 600px at 12% 0%, rgba(31,143,58,.06), transparent 60%),
-    radial-gradient(ellipse 800px 600px at 90% 100%, rgba(13,31,45,.055), transparent 55%),
-    radial-gradient(ellipse 500px 400px at 95% 10%, rgba(163,198,68,.07), transparent 60%);
+    radial-gradient(ellipse 900px 600px at 12% 0%,   rgba(31,143,58,.06),  transparent 60%),
+    radial-gradient(ellipse 800px 600px at 90% 100%, rgba(13,31,45,.055),  transparent 55%),
+    radial-gradient(ellipse 500px 400px at 95% 10%,  rgba(163,198,68,.07), transparent 60%);
 }
 
 .bgGrid {
@@ -143,7 +143,7 @@
 /* ── Heading ────────────────────────────────────────────────────────────── */
 .heading { margin-bottom: 22px; }
 .heading h1 { margin: 0 0 8px; font-size: 24px; font-weight: 700; letter-spacing: -.4px; color: var(--ink); }
-.heading p { margin: 0; font-size: 13.5px; color: var(--ink-3); line-height: 1.55; font-weight: 500; }
+.heading p  { margin: 0; font-size: 13.5px; color: var(--ink-3); line-height: 1.55; font-weight: 500; }
 
 /* ── Error banner ───────────────────────────────────────────────────────── */
 .errorBanner {
@@ -235,7 +235,7 @@
 
 .forgot { font-size: 12.5px; color: var(--primary); font-weight: 600; cursor: pointer; text-decoration: none; }
 
-/* ── CTA ────────────────────────────────────────────────────────────────── */
+/* ── CTA — không có opacity khi disabled, giống design gốc ─────────────── */
 .cta {
   height: 48px; width: 100%;
   background: var(--primary);
@@ -251,11 +251,11 @@
     0 6px 16px -4px rgba(31,143,58,.35);
   transition: background .15s, transform .05s;
 }
-.cta:hover:not(:disabled) { background: var(--primary-dark); }
-.cta:active:not(:disabled) { transform: translateY(1px); }
-.cta:disabled { opacity: .7; cursor: not-allowed; }
-.cta .arrow { width: 16px; height: 16px; transition: transform .15s; }
-.cta:hover:not(:disabled) .arrow { transform: translateX(2px); }
+.cta:hover { background: var(--primary-dark); }
+.cta:active { transform: translateY(1px); }
+.cta:disabled { cursor: not-allowed; }          /* không opacity — giữ màu như gốc */
+.cta .arrow { width: 16px; height: 16px; display: inline-block; transition: transform .15s; }
+.cta:hover .arrow { transform: translateX(2px); }
 
 /* ── Divider ────────────────────────────────────────────────────────────── */
 .divider {
@@ -294,16 +294,76 @@
 }
 .pageFoot .sep { margin: 0 10px; color: var(--line); }
 
-/* ── Responsive ─────────────────────────────────────────────────────────── */
+/* ── Responsive 540px ───────────────────────────────────────────────────── */
 @media (max-width: 540px) {
-  .card { padding: 32px 24px 26px; border-radius: 10px; }
+  .card  { padding: 32px 24px 26px; border-radius: 10px; }
+  .brand { gap: 11px; }
   .heading h1 { font-size: 20px; }
 }
+
+/* ── Responsive 380px — đầy đủ theo design gốc ─────────────────────────── */
 @media (max-width: 380px) {
-  .loginPage { padding: 24px 12px 72px; }
-  .topbar { position: static; padding: 14px 12px; }
+  .loginPage {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 24px 12px 72px;
+  }
+
+  .topbar {
+    position: static;
+    width: 100%;
+    padding: 14px 12px;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .topbar .tag, .topbar .env { font-size: 10px; }
+  .topbar .env { align-self: flex-start; }
+
   .card { padding: 24px 16px 20px; border-radius: 8px; }
   .card::before { left: 16px; right: 16px; }
-  .heading h1 { font-size: 18px; }
-  .rowBetween, .cardFoot { flex-direction: column; align-items: flex-start; gap: 10px; }
+
+  .brand { gap: 10px; padding-bottom: 18px; margin-bottom: 18px; }
+  .logoWrap { width: 44px; height: 44px; padding: 5px; }
+  .brandText .system { font-size: 10px; letter-spacing: 1px; }
+  .brandText .company { font-size: 13px; }
+
+  .heading { margin-bottom: 18px; }
+  .heading h1 { font-size: 18px; line-height: 1.3; }
+  .heading p  { font-size: 12px; }
+
+  .field label { font-size: 12px; }
+  .remember, .forgot { font-size: 12px; }
+
+  .form { gap: 14px; }
+
+  .inputWrap { height: 42px; }
+  .prefix { width: 38px; }
+  .inputWrap input { padding: 0 10px; font-size: 13px; }
+  .suffix { padding: 0 10px; font-size: 10px; }
+
+  .rowBetween { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .cardFoot   { flex-direction: column; align-items: flex-start; gap: 10px; }
+
+  .cta { height: 44px; font-size: 13px; }
+
+  .divider { margin: 18px 0 14px; font-size: 10px; gap: 8px; }
+
+  .helperCard { padding: 10px 11px; gap: 8px; }
+  .helperCard .text { font-size: 11px; }
+
+  .fieldError { font-size: 11px; }
+  .cardFoot   { font-size: 11px; }
+
+  .pageFoot {
+    position: static;
+    width: 100%;
+    margin-top: 18px;
+    padding: 0 12px;
+    line-height: 1.6;
+    text-align: center;
+  }
+  .pageFoot .sep { margin: 0 6px; }
 }

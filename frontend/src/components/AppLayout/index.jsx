@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import useAuthStore from '../../store/auth.store'
+import logoImg from '../../assets/logo.png'
 import './AppLayout.css'
 
 // ── Nav icons ────────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ export default function AppLayout() {
       <aside className="sidebar">
         <div className="sidebarBrand">
           <div className="sidebarLogoWrap">
-            <img src="/logo.png" alt="BBO" onError={(e) => { e.target.style.display = 'none' }} />
+            <img src={logoImg} alt="BBO" />
           </div>
           <div className="sidebarBrandText">
             <div className="name">BBO Records</div>

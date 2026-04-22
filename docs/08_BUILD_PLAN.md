@@ -424,51 +424,244 @@ ngrok http 3000
 **Kiểm tra Phase 1 — Telegram (không cần Zalo):**
 - [x] `npm run dev` → server start → Telegram setWebhook thành công ✅
 - [x] ngrok http 3000 → WEBHOOK_BASE_URL cập nhật → Telegram nhận webhook ✅
-- [ ] Gửi ảnh vào Telegram group/chat với Bot → record xuất hiện trong DB
-- [ ] Gửi text vào Telegram → record lưu note, image trống
+- [x] Gửi ảnh vào Telegram group/chat với Bot → record xuất hiện trong DB
+- [x] Gửi text vào Telegram → record lưu note, image trống
 - [ ] Gửi sticker/voice → KHÔNG tạo record
-- [ ] Gửi lại cùng message → KHÔNG insert duplicate
-- [ ] `GET /webhook/platforms` → trả về `["telegram"]`
+- [x] Gửi lại cùng message → KHÔNG insert duplicate
+- [x] `GET /webhook/platforms` → trả về `["telegram"]`
 
 ---
 
 ## 📅 PHASE 2 — BACKEND API
 > **Thời gian:** 4 ngày | **Mục tiêu:** API đầy đủ cho Frontend gọi
 
-### Step 2.1 — Authentication (JWT Access + Refresh Token)
+### Step 2.1 — Authentication & User Management
 
-Theo thiết kế trong `05_SECURITY.md`: Access Token ngắn (15 phút) + Refresh Token dài (7 ngày).
+#### Mô hình auth được chọn
+
+Đây là **internal business app** — không có public self-register. Mô hình:
 
 ```
-POST /api/auth/login
-  Body: { username, password }
-  → Verify password (bcrypt)
-  → Generate access_token (JWT, 15 phút, ký bằng JWT_ACCESS_SECRET)
-  → Generate refresh_token (JWT, 7 ngày, ký bằng JWT_REFRESH_SECRET)
-  → Lưu hash(refresh_token) vào DB (bảng refresh_tokens)
-  Response: { access_token, refresh_token, user: { id, name, role } }
-
-POST /api/auth/refresh
-  Body: { refresh_token }
-  → Verify refresh_token
-  → Kiểm tra hash tồn tại trong DB (chống reuse sau logout)
-  → Generate access_token mới
-  Response: { access_token }
-
-POST /api/auth/logout
-  → Xóa refresh_token khỏi DB
-  Response: { success: true }
-
-GET /api/auth/me          ← Lấy thông tin user hiện tại (cần access_token)
+[Bootstrap] → Admin đầu tiên tạo bằng seed script (CLI, không phải API)
+    └─► Admin/Manager tạo tài khoản nội bộ qua API (admin-only)
+            └─► Staff nhận credentials → login → đổi mật khẩu lần đầu
 ```
 
-**Middleware auth — `src/middlewares/auth.middleware.js`:**
+Không có: public signup, email verify, forgot password qua email, OAuth.
+Có: admin reset password, admin deactivate account, refresh token rotation.
+
+---
+
+#### DB Schema — bổ sung vào users + refresh_tokens
+
+**Thêm cột vào bảng `users`** (migration `009_auth_hardening.sql`):
+```sql
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS password_hash      TEXT,
+  ADD COLUMN IF NOT EXISTS is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS must_change_pw     BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS login_attempts     INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS locked_until       TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS last_login_at      TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP;
+```
+
+**Bảng `refresh_tokens`** (migration `002_create_refresh_tokens.sql` nếu chưa có):
+```sql
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash   TEXT NOT NULL UNIQUE,   -- sha256(raw_token), KHÔNG lưu raw
+  family_id    UUID NOT NULL,          -- rotation: cùng family bị revoke khi reuse
+  expires_at   TIMESTAMP NOT NULL,
+  created_at   TIMESTAMP DEFAULT NOW(),
+  revoked_at   TIMESTAMP,              -- NULL = còn hợp lệ
+  device_hint  VARCHAR(100)            -- tùy chọn: user-agent snippet để debug
+);
+
+CREATE INDEX IF NOT EXISTS idx_rt_token_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_rt_user_id    ON refresh_tokens(user_id);
+```
+
+> **family_id**: Khi token bị reuse (đã revoke mà vẫn dùng) → revoke TOÀN BỘ
+> token cùng family — buộc user login lại. Chống token theft.
+
+---
+
+#### Password Policy
+
+- Tối thiểu 8 ký tự
+- bcrypt rounds = 12 (production) / 10 (dev, nhanh hơn khi test)
+- Không log password dưới bất kỳ hình thức nào
+- Không trả error message phân biệt "sai username" vs "sai password" (→ luôn dùng chung: "Invalid credentials")
+
+---
+
+#### RBAC — Phân quyền theo action
+
+| Action | admin | manager | staff |
+|--------|:-----:|:-------:|:-----:|
+| Login | ✅ | ✅ | ✅ |
+| Xem profile của mình (`/me`) | ✅ | ✅ | ✅ |
+| Đổi password của mình | ✅ | ✅ | ✅ |
+| Tạo user mới | ✅ | ✅ | ❌ |
+| Xem danh sách users | ✅ | ✅ | ❌ |
+| Deactivate/activate user | ✅ | ❌ | ❌ |
+| Reset password user khác | ✅ | ❌ | ❌ |
+| Đổi role user | ✅ | ❌ | ❌ |
+
+---
+
+#### Bootstrap Admin đầu tiên
+
+Không có API public. Chạy seed script một lần khi deploy lần đầu:
+
+```bash
+# Tạo admin đầu tiên — chạy 1 lần, không commit password vào code
+node src/db/seeds/create_admin.js --username admin --name "Quản trị viên" --password "ChangeMe@2026"
+```
+
+Script tạo user với `role='admin'`, `must_change_pw=true` → admin phải đổi mật khẩu khi login lần đầu.
+
+---
+
+#### API Endpoints — Auth
+
+**`POST /api/auth/login`** — Không cần auth
+```
+Body:     { username: string, password: string }
+Flow:
+  1. Tìm user theo username
+  2. Kiểm tra is_active = true → 401 nếu false ("Account disabled")
+  3. Kiểm tra locked_until > NOW() → 423 nếu còn locked
+  4. Verify bcrypt(password, password_hash)
+  5. Nếu sai: login_attempts++ → nếu >= 5: locked_until = NOW() + 15 phút
+  6. Nếu đúng: reset login_attempts = 0, cập nhật last_login_at
+  7. Generate access_token (JWT 15m) + refresh_token (JWT 7d)
+  8. Lưu sha256(refresh_token) vào refresh_tokens với family_id mới
+Response: {
+  access_token: string,
+  refresh_token: string,
+  user: { id, name, role, must_change_pw }
+}
+Lỗi: 401 (sai credentials), 423 (account locked), 403 (account disabled)
+```
+
+**`POST /api/auth/refresh`** — Không cần auth
+```
+Body:     { refresh_token: string }
+Flow:
+  1. Verify JWT signature + expiry
+  2. Tính sha256(refresh_token), tìm trong DB
+  3. Nếu không tìm thấy → 401
+  4. Nếu revoked_at IS NOT NULL → reuse attack: revoke TOÀN BỘ family → 401
+  5. Kiểm tra user is_active = true
+  6. Revoke token cũ (set revoked_at = NOW())
+  7. Generate refresh_token MỚI cùng family_id, lưu vào DB
+  8. Generate access_token mới
+Response: { access_token: string, refresh_token: string }
+Lỗi: 401 (invalid/expired/reused), 403 (user disabled)
+```
+
+> **Token rotation**: mỗi lần refresh → token cũ bị revoke, token mới được cấp.
+> Client PHẢI lưu và dùng token mới, không dùng lại token cũ.
+
+**`POST /api/auth/logout`** — Cần access_token
+```
+Body:     { refresh_token: string }
+Flow:     Revoke token đó (set revoked_at = NOW())
+Response: { success: true }
+Note:     Access token cũ vẫn hợp lệ đến hết 15 phút — đây là trade-off chấp nhận được cho internal app.
+          Nếu cần revoke ngay: dùng Redis blocklist (Phase 2.5 optional).
+```
+
+**`POST /api/auth/logout-all`** — Cần access_token *(optional, đưa vào nếu có thời gian)*
+```
+Flow:     Revoke TẤT CẢ refresh_tokens của user (set revoked_at = NOW() cho cả family)
+Use case: User nghi ngờ bị lộ token → kick hết thiết bị
+```
+
+**`GET /api/auth/me`** — Cần access_token
+```
+Response: { id, username, name, role, is_active, must_change_pw, last_login_at }
+```
+
+**`POST /api/auth/change-password`** — Cần access_token
+```
+Body:     { current_password: string, new_password: string }
+Flow:
+  1. Verify current_password
+  2. Validate new_password (min 8 ký tự, khác current)
+  3. bcrypt hash new_password
+  4. Cập nhật password_hash, password_changed_at = NOW(), must_change_pw = false
+  5. Revoke TẤT CẢ refresh_tokens hiện có (buộc login lại trên thiết bị khác)
+Response: { success: true }
+```
+
+---
+
+#### API Endpoints — User Management (admin/manager only)
+
+**`POST /api/users`** — Cần admin hoặc manager
+```
+Body:     { username, name, role: 'staff'|'manager', password? }
+Flow:
+  - Nếu không truyền password → tự sinh random password tạm (12 ký tự)
+  - must_change_pw = true (user phải đổi khi login lần đầu)
+  - is_active = true
+Response: { id, username, name, role, temp_password? }
+Note:     temp_password chỉ trả về 1 lần duy nhất khi tạo, không lưu vào DB
+```
+
+**`GET /api/users`** — Cần admin hoặc manager
+```
+Query:    page, limit, role, is_active
+Response: { data: [{ id, username, name, role, is_active, last_login_at }], total }
+```
+
+**`GET /api/users/:id`** — Cần admin hoặc manager (hoặc chính user đó)
+```
+Response: thông tin user đầy đủ (không có password_hash)
+```
+
+**`PATCH /api/users/:id/activate`** — Cần admin
+```
+Body:     { is_active: boolean }
+Flow:     Cập nhật is_active, nếu deactivate → revoke all refresh_tokens
+Response: { success: true }
+```
+
+**`POST /api/users/:id/reset-password`** — Cần admin
+```
+Flow:
+  - Sinh random password tạm (12 ký tự)
+  - Hash + lưu, must_change_pw = true
+  - Revoke all refresh_tokens của user đó
+Response: { temp_password: string }  ← trả về 1 lần, admin tự thông báo cho user
+```
+
+**`PATCH /api/users/:id/role`** — Cần admin
+```
+Body:     { role: 'staff'|'manager'|'admin' }
+Response: { success: true }
+Note:     Không tự hạ role của chính mình
+```
+
+---
+
+#### Middleware
+
+**`requireAuth`** — `src/middlewares/auth.middleware.js`:
 ```js
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'No token' })
   try {
-    req.user = jwt.verify(token, process.env.JWT_ACCESS_SECRET)
+    const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET)
+    // Kiểm tra user vẫn active (DB hit — dùng cache nếu cần tối ưu sau)
+    const { rows } = await db.query('SELECT id, role, is_active FROM users WHERE id = $1', [payload.sub])
+    if (!rows[0] || !rows[0].is_active) return res.status(403).json({ error: 'Account disabled' })
+    req.user = { ...payload, role: rows[0].role }
     next()
   } catch {
     res.status(401).json({ error: 'Token expired or invalid' })
@@ -476,9 +669,8 @@ function requireAuth(req, res, next) {
 }
 ```
 
-**Middleware RBAC — `src/middlewares/rbac.middleware.js`:**
+**`requireRole`** — `src/middlewares/rbac.middleware.js`:
 ```js
-// Dùng: router.get('/users', requireRole('admin'), ...)
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!roles.includes(req.user.role))
@@ -486,20 +678,63 @@ function requireRole(...roles) {
     next()
   }
 }
+// Dùng: router.post('/users', requireAuth, requireRole('admin', 'manager'), createUser)
 ```
 
-**Bảng thêm vào migration:**
-```sql
-CREATE TABLE refresh_tokens (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
-  token_hash  TEXT NOT NULL,           -- sha256(refresh_token), không lưu raw
-  expires_at  TIMESTAMP NOT NULL,
-  created_at  TIMESTAMP DEFAULT NOW()
-);
-```
+---
 
-**Account lockout sau 5 lần sai:** Lưu `login_attempts` + `locked_until` vào bảng users.
+#### Audit Log — bổ sung cho auth actions
+
+| Action | Khi nào |
+|--------|---------|
+| `login_success` | Đăng nhập thành công |
+| `login_failed` | Sai credentials (log IP, không log password) |
+| `login_locked` | Account bị lock do sai quá nhiều lần |
+| `logout` | Logout |
+| `password_changed` | User đổi password |
+| `password_reset` | Admin reset password user khác |
+| `user_created` | Admin tạo user mới |
+| `user_deactivated` | Admin deactivate user |
+| `user_activated` | Admin activate user |
+| `token_reuse_detected` | Phát hiện refresh token reuse (security alert) |
+
+---
+
+#### Checklist Test — Auth
+
+```
+Login:
+  [x] Đúng username + password → 200 + tokens
+  [ ] Sai password → 401 "Invalid credentials"
+  [ ] Sai username → 401 "Invalid credentials" (cùng message, không phân biệt)
+  [ ] Đúng sau 4 lần sai → login thành công, reset login_attempts
+  [ ] Sai lần 5 → 423, locked_until set
+  [ ] Login khi đang locked → 423
+  [ ] User is_active=false → 403 "Account disabled"
+
+Refresh Token:
+  [ ] Token hợp lệ → 200 + access_token mới + refresh_token mới
+  [ ] Token đã revoke (logout) → 401
+  [ ] Token reuse (gửi lại token cũ sau khi đã refresh) → 401 + revoke cả family
+  [ ] Token hết hạn → 401
+  [ ] User bị deactivate → 403
+
+Logout:
+  [ ] Logout thành công → 200
+  [ ] Sau logout, refresh bằng token cũ → 401
+
+Change Password:
+  [ ] current_password sai → 401
+  [ ] new_password < 8 ký tự → 400
+  [ ] Thành công → 200 + tất cả refresh_tokens bị revoke
+
+User Management (admin):
+  [ ] POST /api/users → tạo user, nhận temp_password
+  [ ] User mới login → must_change_pw = true trong response
+  [ ] Deactivate user → user đó không login được nữa
+  [ ] Reset password → user cũ bị kick, phải login lại với temp_password
+  [ ] Staff gọi POST /api/users → 403
+```
 
 Middleware `requireAuth` dùng cho tất cả routes bên dưới.
 

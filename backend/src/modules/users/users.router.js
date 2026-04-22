@@ -12,6 +12,7 @@ const authService = require('../../services/auth.service')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
 const logger = require('../../config/logger')
+const { logAudit } = require('../../services/audit.service')
 
 const VALID_ROLES = ['staff', 'manager', 'admin']
 
@@ -48,6 +49,7 @@ router.post('/', requireAuth, requireRole('admin', 'manager'), async (req, res) 
       [safeUsername, hash, name.trim(), role]
     )
     logger.info('user.created', { by: req.user.sub, newUserId: rows[0].id, role })
+    logAudit({ userId: req.user.sub, action: 'user_created', resource: 'users', resourceId: rows[0].id, newData: { username: safeUsername, role }, req })
     // temp_password chỉ trả về 1 lần, không lưu trong DB
     res.status(201).json({
       ...rows[0],
@@ -134,6 +136,7 @@ router.patch('/:id/activate', requireAuth, requireRole('admin'), async (req, res
   }
 
   logger.info('user.activate_changed', { by: req.user.sub, target: req.params.id, is_active })
+  logAudit({ userId: req.user.sub, action: is_active ? 'user_activated' : 'user_deactivated', resource: 'users', resourceId: req.params.id, req })
   res.json({ success: true })
 })
 
@@ -154,6 +157,7 @@ router.post('/:id/reset-password', requireAuth, requireRole('admin'), async (req
   await authService.logoutAll(req.params.id)
 
   logger.info('user.password_reset', { by: req.user.sub, target: req.params.id })
+  logAudit({ userId: req.user.sub, action: 'password_reset', resource: 'users', resourceId: req.params.id, req })
   res.json({ temp_password: tempPw })
 })
 
@@ -174,6 +178,7 @@ router.patch('/:id/role', requireAuth, requireRole('admin'), async (req, res) =>
   if (!rowCount) return res.status(404).json({ error: 'User not found' })
 
   logger.info('user.role_changed', { by: req.user.sub, target: req.params.id, newRole: role })
+  logAudit({ userId: req.user.sub, action: 'role_changed', resource: 'users', resourceId: req.params.id, newData: { role }, req })
   res.json({ success: true })
 })
 

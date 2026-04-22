@@ -1,13 +1,223 @@
 const router = require('express').Router()
+const db = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
+const { requireRole } = require('../../middlewares/rbac.middleware')
+const connectors = require('../../connectors')
+const logger = require('../../config/logger')
+const { logAudit } = require('../../services/audit.service')
 
-// TODO Phase 2: implement records CRUD
 router.use(requireAuth)
 
-router.get('/',          (req, res) => res.status(501).json({ error: 'Not implemented yet' }))
-router.get('/:id',       (req, res) => res.status(501).json({ error: 'Not implemented yet' }))
-router.patch('/:id',     (req, res) => res.status(501).json({ error: 'Not implemented yet' }))
-router.patch('/:id/status', (req, res) => res.status(501).json({ error: 'Not implemented yet' }))
-router.delete('/:id',    (req, res) => res.status(501).json({ error: 'Not implemented yet' }))
+const VALID_STATUSES = ['new', 'reviewed', 'approved', 'flagged', 'deleted']
+
+// ── GET /api/records ──────────────────────────────────────────────────────────
+router.get('/', async (req, res) => {
+  const { status, platform, sender_id, category_id, date_from, date_to, page = 1, limit = 20 } = req.query
+
+  const pageNum  = Math.max(1, parseInt(page)  || 1)
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
+  const offset   = (pageNum - 1) * limitNum
+
+  if (status && !VALID_STATUSES.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` })
+  }
+
+  const conditions = []
+  const params = []
+
+  // Mặc định ẩn deleted; chỉ hiện khi filter rõ status=deleted
+  if (status) {
+    conditions.push(`r.status = $${params.push(status)}`)
+  } else {
+    conditions.push(`r.status != 'deleted'`)
+  }
+
+  if (platform)    conditions.push(`r.platform = $${params.push(platform)}`)
+  if (sender_id)   conditions.push(`r.sender_id = $${params.push(sender_id)}::uuid`)
+  if (category_id) conditions.push(`r.category_id = $${params.push(category_id)}::uuid`)
+  if (date_from)   conditions.push(`r.received_at >= $${params.push(date_from)}`)
+  if (date_to)     conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+
+  const where       = `WHERE ${conditions.join(' AND ')}`
+  const countParams = [...params]
+  params.push(limitNum, offset)
+
+  const { rows } = await db.query(
+    `SELECT r.id, r.platform, r.sender_id, r.sender_name,
+            r.image_url, r.image_thumbnail, r.ocr_text, r.note,
+            r.status, r.flag_reason, r.category_id,
+            c.name  AS category_name, c.color AS category_color,
+            r.ocr_status, r.ocr_confidence,
+            r.received_at, r.created_at, r.updated_at
+     FROM records r
+     LEFT JOIN categories c ON r.category_id = c.id
+     ${where}
+     ORDER BY r.received_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  )
+
+  const { rows: [{ count }] } = await db.query(
+    `SELECT COUNT(*)::int FROM records r ${where}`,
+    countParams
+  )
+
+  res.json({ data: rows, total: count, page: pageNum, total_pages: Math.ceil(count / limitNum) })
+})
+
+// ── GET /api/records/:id ──────────────────────────────────────────────────────
+router.get('/:id', async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT r.*,
+            u.username  AS sender_username,
+            c.name      AS category_name,  c.color AS category_color,
+            rb.name     AS reviewed_by_name,
+            ab.name     AS approved_by_name
+     FROM records r
+     LEFT JOIN users      u  ON r.sender_id   = u.id
+     LEFT JOIN categories c  ON r.category_id = c.id
+     LEFT JOIN users      rb ON r.reviewed_by = rb.id
+     LEFT JOIN users      ab ON r.approved_by = ab.id
+     WHERE r.id = $1 AND r.status != 'deleted'`,
+    [req.params.id]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Record not found' })
+  res.json(rows[0])
+})
+
+// ── PATCH /api/records/:id/status ─────────────────────────────────────────────
+// Đặt trước PATCH /:id để Express không nhầm "status" là :id
+router.patch('/:id/status', requireRole('admin', 'manager'), async (req, res) => {
+  const { status, flag_reason } = req.body || {}
+
+  if (!status || !['reviewed', 'approved', 'flagged'].includes(status)) {
+    return res.status(400).json({ error: 'status must be one of: reviewed, approved, flagged' })
+  }
+  if (status === 'flagged' && !flag_reason?.trim()) {
+    return res.status(400).json({ error: 'flag_reason is required when status is flagged' })
+  }
+
+  const { rows: [record] } = await db.query(
+    `SELECT id, platform, source_chat_id, sender_name, status
+     FROM records WHERE id = $1 AND status != 'deleted'`,
+    [req.params.id]
+  )
+  if (!record) return res.status(404).json({ error: 'Record not found' })
+
+  const setClauses = ['status = $1', 'flag_reason = $2', 'updated_at = NOW()']
+  const params     = [status, status === 'flagged' ? flag_reason : null]
+
+  if (status === 'reviewed') {
+    setClauses.push(`reviewed_by = $${params.push(req.user.sub)}`, 'reviewed_at = NOW()')
+  } else if (status === 'approved') {
+    setClauses.push(`approved_by = $${params.push(req.user.sub)}`, 'approved_at = NOW()')
+  }
+
+  params.push(req.params.id)
+  await db.query(
+    `UPDATE records SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+    params
+  )
+
+  // Side effect: reply về platform khi flagged (non-critical)
+  if (status === 'flagged' && record.source_chat_id) {
+    setImmediate(async () => {
+      try {
+        const connector = connectors[record.platform]
+        if (connector?.reply) {
+          await connector.reply(
+            record.source_chat_id,
+            `⚠️ Ghi chép của ${record.sender_name} đã bị gắn cờ.\nLý do: ${flag_reason}`
+          )
+        }
+      } catch (e) {
+        logger.warn('records.flag.reply_failed', { recordId: req.params.id, platform: record.platform, error: e.message })
+      }
+    })
+  }
+
+  logAudit({
+    userId: req.user.sub,
+    action: status === 'flagged' ? 'flag' : status === 'approved' ? 'approve' : 'review',
+    resource: 'record', resourceId: req.params.id,
+    oldData: { status: record.status },
+    newData: { status, flag_reason: flag_reason || null },
+    req,
+  })
+
+  res.json({ success: true })
+})
+
+// ── PATCH /api/records/:id — update note / category ──────────────────────────
+router.patch('/:id', async (req, res) => {
+  const { note, category_id } = req.body || {}
+
+  if (note === undefined && category_id === undefined) {
+    return res.status(400).json({ error: 'Provide at least one of: note, category_id' })
+  }
+
+  const { rows: [record] } = await db.query(
+    `SELECT id, note, category_id FROM records WHERE id = $1 AND status != 'deleted'`,
+    [req.params.id]
+  )
+  if (!record) return res.status(404).json({ error: 'Record not found' })
+
+  const setClauses = ['updated_at = NOW()']
+  const params     = []
+  const changes    = []
+
+  if (note !== undefined && note !== record.note) {
+    setClauses.push(`note = $${params.push(note ?? null)}`)
+    changes.push({ field: 'note', old: record.note, new: note })
+  }
+  if (category_id !== undefined && category_id !== record.category_id) {
+    setClauses.push(`category_id = $${params.push(category_id || null)}`)
+    changes.push({ field: 'category_id', old: record.category_id, new: category_id })
+  }
+
+  if (changes.length === 0) return res.json({ success: true, changed: false })
+
+  params.push(req.params.id)
+  await db.query(
+    `UPDATE records SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+    params
+  )
+
+  for (const c of changes) {
+    await db.query(
+      `INSERT INTO edit_logs (record_id, edited_by, field_name, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.params.id, req.user.sub, c.field,
+       c.old != null ? String(c.old) : null,
+       c.new != null ? String(c.new) : null]
+    )
+  }
+
+  logAudit({
+    userId: req.user.sub, action: 'edit', resource: 'record', resourceId: req.params.id,
+    oldData: Object.fromEntries(changes.map(c => [c.field, c.old])),
+    newData: Object.fromEntries(changes.map(c => [c.field, c.new])),
+    req,
+  })
+
+  res.json({ success: true, changed: true })
+})
+
+// ── DELETE /api/records/:id — soft delete ─────────────────────────────────────
+router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const { rowCount } = await db.query(
+    `UPDATE records SET status = 'deleted', updated_at = NOW()
+     WHERE id = $1 AND status != 'deleted'`,
+    [req.params.id]
+  )
+  if (!rowCount) return res.status(404).json({ error: 'Record not found' })
+
+  logAudit({
+    userId: req.user.sub, action: 'delete', resource: 'record',
+    resourceId: req.params.id, req,
+  })
+
+  res.json({ success: true })
+})
 
 module.exports = router

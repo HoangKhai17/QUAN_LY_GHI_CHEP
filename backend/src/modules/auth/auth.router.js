@@ -3,6 +3,7 @@ const db = require('../../config/db')
 const authService = require('../../services/auth.service')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const logger = require('../../config/logger')
+const { logAudit } = require('../../services/audit.service')
 
 function deviceHint(req) {
   return req.headers['user-agent']?.slice(0, 200) || null
@@ -14,9 +15,11 @@ router.post('/login', async (req, res, next) => {
   try {
     const result = await authService.login(username, password, deviceHint(req))
     logger.info('auth.login.success', { username, ip: req.ip })
+    logAudit({ userId: result.user.id, action: 'login_success', resource: 'auth', req })
     res.json(result)
   } catch (err) {
     logger.warn('auth.login.failed', { username, ip: req.ip, status: err.status })
+    logAudit({ action: err.status === 423 ? 'login_locked' : 'login_failed', resource: 'auth', newData: { username }, req })
     res.status(err.status || 500).json({ error: err.message || 'Login failed' })
   }
 })
@@ -37,6 +40,7 @@ router.post('/logout', requireAuth, async (req, res) => {
   const { refresh_token } = req.body || {}
   try {
     await authService.logout(req.user.sub, refresh_token)
+    logAudit({ userId: req.user.sub, action: 'logout', resource: 'auth', req })
     res.json({ success: true })
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message })
@@ -78,6 +82,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
   try {
     await authService.changePassword(req.user.sub, current_password, new_password)
     logger.info('auth.password_changed', { userId: req.user.sub })
+    logAudit({ userId: req.user.sub, action: 'password_changed', resource: 'auth', req })
     res.json({ success: true })
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message })

@@ -432,10 +432,11 @@ ngrok http 3000
 
 ---
 
-## 📅 PHASE 2 — BACKEND API
+## 📅 PHASE 2 — BACKEND API ✅ ĐÃ XONG
 > **Thời gian:** 4 ngày | **Mục tiêu:** API đầy đủ cho Frontend gọi
+> **Trạng thái (2026-04-22):** Steps 2.1 → 2.6 hoàn thành. Toàn bộ endpoints đã test qua Swagger UI tại `/api-docs`.
 
-### Step 2.1 — Authentication & User Management
+### Step 2.1 — Authentication & User Management ✅ ĐÃ XONG
 
 #### Mô hình auth được chọn
 
@@ -738,7 +739,7 @@ User Management (admin):
 
 Middleware `requireAuth` dùng cho tất cả routes bên dưới.
 
-### Step 2.2 — Records API
+### Step 2.2 — Records API ✅ ĐÃ XONG
 
 ```
 GET  /api/records
@@ -768,7 +769,7 @@ DELETE /api/records/:id
   Soft delete: status = 'deleted'
 ```
 
-### Step 2.2b — Audit Log tự động
+### Step 2.2b — Audit Log tự động ✅ ĐÃ XONG
 
 Mọi action quan trọng phải ghi vào `audit_logs`. Tạo service tái dùng:
 
@@ -795,7 +796,7 @@ async function logAudit({ userId, action, resource, resourceId, oldData, newData
 | `delete` | Xóa record |
 | `report_create` | Tạo báo cáo |
 
-### Step 2.3 — Dashboard Summary API
+### Step 2.3 — Dashboard Summary API ✅ ĐÃ XONG
 
 ```
 GET /api/dashboard/summary
@@ -807,7 +808,7 @@ GET /api/dashboard/summary
   }
 ```
 
-### Step 2.4 — Search API
+### Step 2.4 — Search API ✅ ĐÃ XONG
 
 ```
 GET /api/search
@@ -823,7 +824,7 @@ GET /api/search
   WHERE to_tsvector('simple', note || ' ' || ocr_text) @@ plainto_tsquery('simple', $q)
 ```
 
-### Step 2.5 — Categories API
+### Step 2.5 — Categories API ✅ ĐÃ XONG
 
 ```
 GET  /api/categories          ← Lấy danh sách categories
@@ -831,7 +832,7 @@ POST /api/categories          ← Tạo category mới
 PUT  /api/categories/:id      ← Cập nhật
 ```
 
-### Step 2.6 — Users API (nội bộ)
+### Step 2.6 — Users API (nội bộ) ✅ ĐÃ XONG (covered bởi Step 2.1)
 
 ```
 GET /api/users                ← Danh sách nhân viên (để filter báo cáo)

@@ -844,8 +844,9 @@ GET /api/users                ← Danh sách nhân viên (để filter báo cáo
 
 ## 📅 PHASE 3 — FRONTEND: AUTH & LAYOUT
 > **Thời gian:** 2 ngày | **Mục tiêu:** Login hoạt động, layout sidebar cơ bản
+> **Trạng thái (2026-04-22):** Steps 3.1–3.5 hoàn thành. Login flow end-to-end hoạt động. App shell có Sidebar + Header + Footer. Dashboard hiển thị summary thật từ backend.
 
-### Step 3.1 — Setup Router & Layout
+### Step 3.1 — Setup Router & Layout ✅ ĐÃ XONG
 
 ```
 src/App.jsx
@@ -859,7 +860,7 @@ src/App.jsx
        └── /app/reports → <ReportsPage>
 ```
 
-### Step 3.2 — Login Page
+### Step 3.2 — Login Page ✅ ĐÃ XONG
 
 ```
 src/pages/Login/index.jsx
@@ -869,7 +870,7 @@ src/pages/Login/index.jsx
   └── Redirect về /app/dashboard
 ```
 
-### Step 3.3 — App Layout (Sidebar + Header)
+### Step 3.3 — App Layout (Sidebar + Header) ✅ ĐÃ XONG (placeholder)
 
 ```
 src/components/AppLayout/
@@ -881,7 +882,7 @@ src/components/AppLayout/
 └── Header.jsx      ← Tên user + 🔔 Bell badge + Logout
 ```
 
-### Step 3.4 — API Service layer
+### Step 3.4 — API Service layer ✅ ĐÃ XONG
 
 ```
 src/services/api.js
@@ -893,7 +894,7 @@ src/services/search.api.js
 src/services/reports.api.js
 ```
 
-### Step 3.5 — Global State (Zustand)
+### Step 3.5 — Global State (Zustand) ✅ ĐÃ XONG
 
 ```
 src/store/auth.store.js       ← user info, token

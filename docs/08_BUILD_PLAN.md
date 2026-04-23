@@ -905,77 +905,250 @@ src/store/notifications.store.js  ← số records mới chưa đọc
 
 ## 📅 PHASE 4 — DASHBOARD & RECORD REVIEW
 > **Thời gian:** 4 ngày | **Mục tiêu:** Quản lý xem và duyệt được records
+> **Trạng thái (2026-04-23):** Layout & UI design hoàn thành (Dashboard, RecordList, RecordDetail). Đang triển khai data layer + API integration.
 
-### Step 4.1 — Dashboard Page
+### Step 4.0 — UI Design & Layout ✅ ĐÃ XONG
+
+Layout đã được thiết kế và dựng xong cho 3 màn hình chính:
+
+```
+src/pages/Dashboard/         ✅ Layout xong
+src/pages/Records/           ✅ Layout xong (RecordList + RecordDetail)
+src/components/RecordList/   ✅ Layout xong
+src/components/RecordDetail/ ✅ Layout xong
+```
+
+Các file CSS tương ứng đã thiết lập design tokens, responsive breakpoints và visual states (hover, active, error, empty).
+
+---
+
+### Step 4.1 — Dashboard Page — Data Integration
+
+**Mục tiêu:** Kết nối SummaryCards và RecordList với API thật.
 
 ```
 src/pages/Dashboard/index.jsx
-  ├── SummaryCards (Hôm nay: Tổng / Mới / Duyệt / Flag)
-  ├── RecordList component
-  └── Filters (status, date range, sender)
+  ├── SummaryCards
+  │   ├── GET /api/dashboard/summary → today.total / pending_review / today.approved / this_week.total
+  │   └── Polling mỗi 30 giây (setInterval + clearInterval on unmount)
+  │
+  ├── RecordList nhúng trực tiếp (records mới nhất, limit 10)
+  │   └── GET /api/records?status=new&limit=10&page=1
+  │
+  └── Filters bar: status tabs (Tất cả / Mới / Đang xem / Đã duyệt / Flagged)
 ```
 
-**SummaryCards:** Gọi `GET /api/dashboard/summary` mỗi 30 giây (polling cơ bản, WebSocket thêm sau).
-
-### Step 4.2 — RecordList Component
-
-```
-src/components/RecordList/
-├── RecordList.jsx        ← Ant Design <Table> hoặc <List>
-│   Columns: [Thumbnail | Người gửi | Thời gian | Preview ghi chú | Trạng thái | Actions]
-├── RecordRow.jsx         ← Từng dòng record
-└── StatusBadge.jsx       ← Badge màu: Mới/Xem/Duyệt/Flag
+**State shape:**
+```js
+const [summary, setSummary] = useState(null)       // dashboard summary
+const [records, setRecords] = useState([])          // danh sách records
+const [total,   setTotal]   = useState(0)
+const [page,    setPage]    = useState(1)
+const [filters, setFilters] = useState({ status: '', date_from: '', date_to: '' })
+const [loading, setLoading] = useState(true)
 ```
 
-**Phân trang:** Ant Design Table pagination, gọi API khi đổi trang.
-
-### Step 4.3 — Record Detail (Modal / Drawer)
-
-```
-src/components/RecordDetail/
-├── RecordDetail.jsx
-│   ├── Ảnh full-size (load từ Signed URL — hết hạn sau 1 giờ)
-│   ├── Thông tin: người gửi, thời gian, category
-│   ├── Ghi chú (note) — editable
-│   ├── OCR text (readonly) — hiển thị confidence %
-│   └── ActionBar: [✅ Duyệt] [🚩 Flag] [✏️ Sửa] [🗑️ Xóa]
+**Polling implementation:**
+```js
+useEffect(() => {
+  fetchSummary()                             // lần đầu
+  const id = setInterval(fetchSummary, 30_000)
+  return () => clearInterval(id)
+}, [])
 ```
 
-**Signed URL flow (theo 05_SECURITY.md):**
-- API `GET /api/records/:id` trả về `image_url` là Signed URL (có `?sig=xxx&expires=...`)
-- URL này hết hạn sau 1 giờ → không thể share/bookmark tùy tiện
-- Frontend load ảnh trực tiếp từ S3/Cloudinary qua Signed URL — không đi qua backend
+---
 
-**Flag Dialog:** Khi click 🚩, mở modal nhỏ để nhập `flag_reason`.
+### Step 4.2 — RecordList Component — Data Layer
+
+**File:** `src/components/RecordList/RecordList.jsx`
+
+```
+Props:
+  records    : array    ← dữ liệu từ API
+  total      : number   ← tổng số để phân trang
+  page       : number
+  loading    : boolean
+  onPageChange(page)    ← callback đổi trang
+  onRowClick(record)    ← mở RecordDetail
+  onApprove(id)         ← action inline
+  onFlag(id)            ← mở flag dialog
+
+Columns render:
+  [Thumbnail 60×60] [Người gửi + platform badge] [Thời gian (relative)] 
+  [Preview ghi chú — truncate 2 dòng] [StatusBadge] [Actions dropdown]
+```
+
+**StatusBadge colors:**
+```
+new      → xanh lam  (#1890ff) — "Mới"
+reviewed → vàng      (#faad14) — "Đã xem"
+approved → xanh lá   (#52c41a) — "Đã duyệt"
+flagged  → đỏ        (#ff4d4f) — "Flagged"
+```
+
+**Phân trang:** Custom pagination — `page * limit` vs `total`, gọi `onPageChange` khi đổi trang, API tự fetch lại.
+
+**Empty state:**
+```
+Chưa có ghi chép nào.
+Nhân viên gửi ảnh qua Telegram hoặc Zalo để bắt đầu.
+```
+
+---
+
+### Step 4.3 — RecordDetail — Data & Interaction
+
+**File:** `src/components/RecordDetail/RecordDetail.jsx`  
+Mở bằng Drawer (slide từ phải) khi click vào row trong RecordList.
+
+```
+Props:
+  recordId : string | null    ← null → drawer đóng
+  onClose()
+  onStatusChange(id, status)  ← bubble up để update list
+  onDelete(id)
+
+Data fetch: GET /api/records/:id khi recordId thay đổi
+
+Sections:
+  ┌─ Image panel ─────────────────────────────────────┐
+  │  Ảnh full-size load từ image_url (Signed URL)      │
+  │  Skeleton loader trong khi ảnh chưa load           │
+  │  Fallback: icon ảnh bị lỗi + nút retry             │
+  └───────────────────────────────────────────────────┘
+  ┌─ Info panel ──────────────────────────────────────┐
+  │  Người gửi (name + platform badge)                 │
+  │  Thời gian nhận (format: HH:mm DD/MM/YYYY)         │
+  │  Danh mục (CategorySelect — editable)              │
+  │  Trạng thái (StatusBadge)                          │
+  └───────────────────────────────────────────────────┘
+  ┌─ Note panel ──────────────────────────────────────┐
+  │  Ghi chú (textarea, lưu khi blur hoặc Ctrl+S)      │
+  └───────────────────────────────────────────────────┘
+  ┌─ OCR panel ───────────────────────────────────────┐
+  │  Text trích xuất tự động (readonly)                │
+  │  Confidence: 90% (badge màu xanh/vàng/đỏ)         │
+  └───────────────────────────────────────────────────┘
+  ┌─ ActionBar ───────────────────────────────────────┐
+  │  [✅ Duyệt]  [🚩 Flag]  [✏️ Lưu ghi chú]  [🗑️]    │
+  └───────────────────────────────────────────────────┘
+```
+
+**Signed URL note:** `image_url` từ API đã là Signed URL có TTL 1 giờ. Frontend load trực tiếp, không proxy qua backend.
+
+**CategorySelect:** Gọi `GET /api/categories` một lần khi component mount, cache vào local state. Dropdown thay đổi → `PATCH /api/records/:id { category_id }` ngay.
+
+---
 
 ### Step 4.4 — Action Handlers
 
+```js
+// Approve
+async function handleApprove(recordId) {
+  await api.patch(`/api/records/${recordId}/status`, { status: 'approved' })
+  // optimistic: cập nhật records[] trong state ngay
+  setRecords(prev => prev.map(r => r.id === recordId ? { ...r, status: 'approved' } : r))
+  toast.success('Đã duyệt thành công')
+}
+
+// Flag — mở FlagDialog trước
+async function handleFlag(recordId, flagReason) {
+  await api.patch(`/api/records/${recordId}/status`, { status: 'flagged', flag_reason: flagReason })
+  setRecords(prev => prev.map(r => r.id === recordId ? { ...r, status: 'flagged' } : r))
+  toast.success('Đã đánh dấu — thông báo đã gửi cho nhân viên')
+}
+
+// Edit note / category
+async function handleEdit(recordId, { note, category_id }) {
+  await api.patch(`/api/records/${recordId}`, { note, category_id })
+  toast.success('Đã lưu thay đổi')
+}
+
+// Delete — confirm trước
+async function handleDelete(recordId) {
+  await api.delete(`/api/records/${recordId}`)
+  setRecords(prev => prev.filter(r => r.id !== recordId))
+  toast.success('Đã xóa ghi chép')
+}
 ```
-onApprove(recordId)
-  → PATCH /api/records/:id/status { status: 'approved' }
-  → Cập nhật local state (optimistic update)
-  → Toast: "Đã duyệt thành công"
 
-onFlag(recordId, reason)
-  → PATCH /api/records/:id/status { status: 'flagged', flag_reason: reason }
-  → Toast: "Đã đánh dấu, thông báo đã gửi cho nhân viên"
-
-onEdit(recordId, { note, category_id })
-  → PATCH /api/records/:id
-  → Toast: "Đã lưu thay đổi"
-
-onDelete(recordId)
-  → Confirm dialog: "Bạn có chắc muốn xóa?"
-  → DELETE /api/records/:id
-  → Remove khỏi list
+**FlagDialog:**
+```
+src/components/FlagDialog/FlagDialog.jsx
+  ├── Modal nhỏ, input textarea "Lý do gắn cờ"
+  ├── Validate: không được để trống
+  └── [Hủy] [Xác nhận gắn cờ]
 ```
 
-**Kiểm tra Phase 4:**
-- [ ] Xem danh sách records từ DB
-- [ ] Click xem chi tiết record với ảnh
-- [ ] Duyệt record → status đổi sang 'approved'
-- [ ] Flag record với lý do
-- [ ] Sửa ghi chú record
+---
+
+### Step 4.5 — Filter & Pagination
+
+**Filter bar** (trên RecordList trong Dashboard):
+```
+[Tất cả] [Mới] [Đã xem] [Đã duyệt] [Flagged]   ←  status tabs
+[Date range picker]  [Người gửi dropdown]          ←  secondary filters
+```
+
+**URL sync (tùy chọn):** Đồng bộ filter vào `?status=new&page=2` để refresh không mất state.
+
+**Pagination state flow:**
+```
+filter thay đổi → reset page về 1 → fetch records mới
+page thay đổi   → fetch records trang mới (giữ filter)
+```
+
+---
+
+### Step 4.6 — Error & Loading States
+
+```
+Loading: Skeleton loader cho SummaryCards (4 card placeholder)
+         Skeleton rows cho RecordList (5 dòng mờ)
+         Spinner overlay cho RecordDetail khi đang fetch
+
+API Error:
+  Dashboard summary fail → hiện banner "Không tải được dữ liệu" + nút Thử lại
+  RecordList fail       → empty state với icon lỗi + Thử lại
+  Action fail           → toast.error với message từ API response
+
+401 tự động: interceptor trong api.js redirect về /login
+```
+
+---
+
+### Kiểm tra Phase 4
+
+```
+Dashboard:
+  [ ] SummaryCards hiển thị số thật từ /api/dashboard/summary
+  [ ] Polling 30s — số tự cập nhật khi có record mới (kiểm tra bằng cách tạo record thủ công qua DB)
+  [ ] Skeleton loading hiển thị đúng khi chờ API
+
+RecordList:
+  [ ] Danh sách records load từ DB (không phải mock data)
+  [ ] Phân trang hoạt động — đổi trang gọi API mới
+  [ ] Filter theo status — tab "Mới" chỉ hiện status=new
+  [ ] Thumbnail ảnh hiển thị (hoặc fallback nếu không có ảnh)
+  [ ] Click row → mở RecordDetail Drawer
+
+RecordDetail:
+  [ ] Ảnh load từ Signed URL
+  [ ] OCR text + confidence hiển thị
+  [ ] Đổi category → PATCH ngay, không cần nút Save riêng
+  [ ] Sửa ghi chú → lưu khi blur / Ctrl+S
+
+Actions:
+  [ ] Duyệt record → status badge đổi sang "Đã duyệt" ngay (optimistic)
+  [ ] Flag record → FlagDialog mở, nhập lý do, confirm → status đổi
+  [ ] Xóa record → confirm dialog → record biến khỏi list
+  [ ] Action fail → toast error, state không bị thay đổi sai
+
+Error states:
+  [ ] Ngắt mạng → hiện lỗi đúng chỗ, không crash
+  [ ] 401 → redirect về /login
+```
 
 ---
 

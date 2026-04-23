@@ -3,16 +3,29 @@
  *
  * Pipeline:
  *   NormalizedMessage
+ *     → duplicate check
  *     → upsert user
  *     → download & upload image (nếu có)
  *     → OCR (nếu có ảnh)
  *     → insert record vào DB
  *     → emit WebSocket event
+ *     → (on error) notify user via platform
  */
 const db = require('../../config/db')
 const logger = require('../../config/logger')
 const ocrService = require('../../services/ocr.service')
 const storageService = require('../../services/storage.service')
+
+// Thông báo lỗi trả về người dùng qua platform
+const MESSAGES = {
+  image_failed:
+    '⚠️ Hệ thống không tải được ảnh từ tin nhắn của bạn.\n' +
+    'Ghi chú đã được lưu, nhưng ảnh chưa xử lý được.\n' +
+    'Vui lòng gửi lại ảnh nếu cần.',
+  process_failed:
+    '⚠️ Hệ thống chưa nhận diện được tin nhắn của bạn.\n' +
+    'Vui lòng gửi lại sau ít phút.',
+}
 
 async function process(normalizedMsg, connector, io) {
   const {
@@ -30,7 +43,20 @@ async function process(normalizedMsg, connector, io) {
   } = normalizedMsg
 
   const start = Date.now()
-  logger.info('message.process.start', { platform, message_type, sender_name })
+  logger.info('message.process.start', { platform, message_type, sender_name, source_chat_id })
+
+  // Helper: gửi thông báo lỗi về platform, không throw
+  async function notifyUser(text) {
+    try {
+      await connector.reply(source_chat_id, text)
+    } catch (replyErr) {
+      logger.warn('message.process.notify_failed', {
+        error: replyErr.message,
+        platform,
+        source_chat_id,
+      })
+    }
+  }
 
   try {
     // ── 1. Kiểm tra duplicate ──────────────────────────────────────
@@ -72,14 +98,26 @@ async function process(normalizedMsg, connector, io) {
 
         // ── 4. OCR ────────────────────────────────────────────────
         if (storedImageUrl) {
-          const ocrResult = await ocrService.extractText(storedImageUrl)
-          ocrText = ocrResult.text
-          ocrStatus = ocrResult.status
-          ocrConfidence = ocrResult.confidence
+          try {
+            const ocrResult = await ocrService.extractText(storedImageUrl)
+            ocrText = ocrResult.text
+            ocrStatus = ocrResult.status
+            ocrConfidence = ocrResult.confidence
+          } catch (ocrErr) {
+            logger.warn('message.process.ocr_error', { error: ocrErr.message, platform })
+            ocrStatus = 'failed'
+            // OCR lỗi nhưng ảnh vẫn lưu được → không cần báo lỗi cho user
+          }
         }
-      } catch (err) {
-        logger.warn('message.process.image_error', { error: err.message, platform })
+      } catch (imgErr) {
+        logger.warn('message.process.image_error', {
+          error: imgErr.message,
+          platform,
+          platform_message_id,
+        })
         ocrStatus = 'failed'
+        // Thông báo cho người dùng qua platform — không block việc lưu record
+        await notifyUser(MESSAGES.image_failed)
       }
     } else {
       ocrStatus = 'success'
@@ -120,6 +158,8 @@ async function process(normalizedMsg, connector, io) {
       platform,
       platform_message_id,
     })
+    // Thông báo lỗi nghiêm trọng về platform để người dùng biết cần gửi lại
+    await notifyUser(MESSAGES.process_failed)
     throw err
   }
 }

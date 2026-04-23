@@ -149,9 +149,10 @@
   color: var(--ink);
   letter-spacing: -1px; line-height: 1;
 }
-.stat-delta-up   { font-size: 11px; font-weight: 700; color: var(--primary); }
-.stat-delta-down { font-size: 11px; font-weight: 700; color: var(--danger); }
-.stat-hint       { font-size: 11px; color: var(--ink3); margin-top: 2px; }
+.stat-delta-up      { font-size: 11px; font-weight: 700; color: var(--primary); }
+.stat-delta-down    { font-size: 11px; font-weight: 700; color: var(--danger); }
+.stat-delta-neutral { font-size: 11px; font-weight: 600; color: var(--ink3); }
+.stat-hint          { font-size: 11px; color: var(--ink3); margin-top: 2px; }
 
 /* ── Image placeholder ───────────────────────────────────────────────────── */
 .img-ph {

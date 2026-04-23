@@ -5,17 +5,23 @@ const CARDS = [
     key:    'today_total',
     label:  'Record mới hôm nay',
     accent: 'primary',
-    hint:   'so với hôm qua',
-    getValue: s => s?.today?.total,
-    getDelta: s => s?.today?.new != null ? `+${s.today.new} mới` : null,
-    deltaUp: true,
+    hint:   'tổng nhận trong ngày',
+    // today.total = tất cả records nhận hôm nay (mọi trạng thái)
+    getValue: s => s?.today?.total ?? 0,
+    // Delta: bao nhiêu đang còn chờ xử lý trong số đó
+    getDelta: s => {
+      const pending = s?.today?.new
+      return pending != null ? `${pending} chưa xử lý` : null
+    },
+    deltaUp: false,
   },
   {
     key:    'pending',
     label:  'Đang chờ rà soát',
     accent: 'warning',
-    hint:   'cần xử lý sớm',
-    getValue: s => s?.pending_review,
+    hint:   'tổng chưa được xử lý',
+    // pending_review = tổng records status='new' (toàn bộ, không giới hạn hôm nay)
+    getValue: s => s?.pending_review ?? 0,
     getDelta: () => null,
     deltaUp: false,
   },
@@ -23,18 +29,28 @@ const CARDS = [
     key:    'approved',
     label:  'Đã duyệt',
     accent: 'lime',
-    hint:   'trong tuần này',
-    getValue: s => s?.this_week?.total,
-    getDelta: s => s?.today?.approved != null ? `${s.today.approved} hôm nay` : null,
+    hint:   'đã duyệt trong tuần này',
+    // this_week.approved = records được approve trong tuần (không phải tổng tuần)
+    getValue: s => s?.this_week?.approved ?? 0,
+    // Delta: bao nhiêu đã duyệt hôm nay
+    getDelta: s => {
+      const todayApproved = s?.today?.approved
+      return todayApproved != null ? `${todayApproved} hôm nay` : null
+    },
     deltaUp: true,
   },
   {
     key:    'flagged',
     label:  'Bị flag / lỗi',
     accent: 'danger',
-    hint:   'cần kiểm tra lại',
-    getValue: s => s?.today?.flagged ?? 0,
-    getDelta: () => null,
+    hint:   'tổng đang cần kiểm tra',
+    // total_flagged = tổng records status='flagged' (toàn bộ, không giới hạn hôm nay)
+    getValue: s => s?.total_flagged ?? 0,
+    // Delta: bao nhiêu bị flag hôm nay
+    getDelta: s => {
+      const todayFlagged = s?.today?.flagged
+      return todayFlagged > 0 ? `${todayFlagged} hôm nay` : null
+    },
     deltaUp: false,
   },
 ]
@@ -61,11 +77,11 @@ function StatCard({ card, summary, loading }) {
         {loading ? (
           <div className="skeleton" style={{ width: 72, height: 38, borderRadius: 6 }} />
         ) : (
-          <span className="stat-value">{value ?? '—'}</span>
+          <span className="stat-value">{value}</span>
         )}
         {!loading && delta && (
-          <span className={card.deltaUp ? 'stat-delta-up' : 'stat-delta-down'}>
-            {card.deltaUp ? '▲' : '▼'} {delta}
+          <span className={card.deltaUp ? 'stat-delta-up' : 'stat-delta-neutral'}>
+            {delta}
           </span>
         )}
       </div>

@@ -16,10 +16,15 @@ class TelegramConnector extends BaseConnector {
     // Telegram hỗ trợ X-Telegram-Bot-Api-Secret-Token header (tuỳ chọn)
     if (!this.secretToken) return true
     const header = req.headers['x-telegram-bot-api-secret-token'] || ''
-    return crypto.timingSafeEqual(
-      Buffer.from(header),
-      Buffer.from(this.secretToken)
-    )
+    try {
+      const a = Buffer.from(header)
+      const b = Buffer.from(this.secretToken)
+      // timingSafeEqual throws nếu length khác nhau → phải check trước
+      if (a.length !== b.length) return false
+      return crypto.timingSafeEqual(a, b)
+    } catch {
+      return false
+    }
   }
 
   parse(payload) {
@@ -67,10 +72,13 @@ class TelegramConnector extends BaseConnector {
     const url = `${webhookUrl}/webhook/telegram`
     const { data } = await axios.post(`${this.apiBase}/setWebhook`, {
       url,
-      allowed_updates: ['message', 'channel_post'],
+      // message: DM + group (khi privacy mode off) + supergroup
+      // channel_post: bài đăng trong channel
+      // edited_message: tin nhắn được sửa (bỏ qua ở parser, nhưng Telegram vẫn gửi)
+      allowed_updates: ['message', 'channel_post', 'edited_message'],
       ...(this.secretToken && { secret_token: this.secretToken }),
     })
-    logger.info('telegram.webhook.registered', { url, result: data })
+    logger.info('telegram.webhook.registered', { url, result: data.description })
     return data
   }
 

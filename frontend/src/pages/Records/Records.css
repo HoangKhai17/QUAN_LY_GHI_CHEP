@@ -1,0 +1,86 @@
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.recPage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 28px;
+  min-height: 100%;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.recToolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.recToolbar__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.2;
+  letter-spacing: -.3px;
+}
+.recToolbar__sub {
+  font-size: 13px;
+  color: var(--ink3);
+  margin-top: 3px;
+}
+.recToolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.recFilters__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.recFilters__divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line2);
+  flex-shrink: 0;
+}
+
+.recFilters__chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Search bar ──────────────────────────────────────────────────────────── */
+.recSearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.recSearch__input {
+  border: 1.5px solid var(--line2);
+  border-radius: 7px;
+  padding: 6px 12px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  width: 240px;
+  transition: border-color .15s;
+  background: #fff;
+}
+.recSearch__input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(31,143,58,.08);
+}
+.recSearch__input::placeholder { color: var(--ink3); }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .recPage { padding: 16px; gap: 12px; }
+  .recSearch__input { width: 180px; }
+  .recFilters__divider { display: none; }
+}

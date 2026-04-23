@@ -13,6 +13,9 @@ function IconZap() {
 function IconSearch() {
   return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
 }
+function IconList() {
+  return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+}
 function IconChart() {
   return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 9l-5 5-2-2-4 4"/></svg>
 }
@@ -24,14 +27,16 @@ function IconLogout() {
 }
 
 const NAV_ITEMS = [
-  { to: '/app/dashboard',    label: 'Dashboard',      Icon: IconGrid   },
-  { to: '/app/quick-review', label: 'Rà soát nhanh',  Icon: IconZap    },
-  { to: '/app/search',       label: 'Tìm kiếm',       Icon: IconSearch },
-  { to: '/app/reports',      label: 'Báo cáo',         Icon: IconChart  },
+  { to: '/app/dashboard',    label: 'Dashboard',        Icon: IconGrid   },
+  { to: '/app/records',      label: 'Danh sách Record', Icon: IconList   },
+  { to: '/app/quick-review', label: 'Rà soát nhanh',   Icon: IconZap    },
+  { to: '/app/search',       label: 'Tìm kiếm',        Icon: IconSearch },
+  { to: '/app/reports',      label: 'Báo cáo',          Icon: IconChart  },
 ]
 
 const PAGE_TITLES = {
   '/app/dashboard':    'Dashboard',
+  '/app/records':      'Danh sách Record',
   '/app/quick-review': 'Rà soát nhanh',
   '/app/search':       'Tìm kiếm',
   '/app/reports':      'Báo cáo',

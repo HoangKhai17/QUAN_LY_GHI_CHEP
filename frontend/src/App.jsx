@@ -3,6 +3,7 @@ import ProtectedRoute  from './routes/ProtectedRoute'
 import LoginPage       from './pages/Login'
 import AppLayout       from './components/AppLayout'
 import DashboardPage   from './pages/Dashboard'
+import RecordsPage     from './pages/Records'
 import PlaceholderPage from './pages/Placeholder'
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/app/dashboard" replace />} />
           <Route path="dashboard"    element={<DashboardPage />} />
+          <Route path="records"      element={<RecordsPage />} />
           <Route path="quick-review" element={<PlaceholderPage title="Rà soát nhanh" icon="⚡" phase="Phase 6" />} />
           <Route path="search"       element={<PlaceholderPage title="Tìm kiếm"       icon="🔍" phase="Phase 7" />} />
           <Route path="reports"      element={<PlaceholderPage title="Báo cáo"         icon="📊" phase="Phase 8" />} />

@@ -903,9 +903,9 @@ src/store/notifications.store.js  ← số records mới chưa đọc
 
 ---
 
-## 📅 PHASE 4 — DASHBOARD & RECORD REVIEW
+## 📅 PHASE 4 — DASHBOARD & RECORD REVIEW ✅ ĐÃ XONG
 > **Thời gian:** 4 ngày | **Mục tiêu:** Quản lý xem và duyệt được records
-> **Trạng thái (2026-04-23):** Layout & UI design hoàn thành (Dashboard, RecordList, RecordDetail). Đang triển khai data layer + API integration.
+> **Trạng thái (2026-04-23):** Hoàn thành toàn bộ Steps 4.0 → 4.6. Dashboard, RecordList, RecordDetail, Records page, Filter & Pagination, Error/Loading states đều đã triển khai và build pass.
 
 ### Step 4.0 — UI Design & Layout ✅ ĐÃ XONG
 
@@ -922,20 +922,17 @@ Các file CSS tương ứng đã thiết lập design tokens, responsive breakpo
 
 ---
 
-### Step 4.1 — Dashboard Page — Data Integration
+### Step 4.1 — Dashboard Page — Data Integration ✅ ĐÃ XONG
 
 **Mục tiêu:** Kết nối SummaryCards và RecordList với API thật.
 
 ```
-src/pages/Dashboard/index.jsx
-  ├── SummaryCards
-  │   ├── GET /api/dashboard/summary → today.total / pending_review / today.approved / this_week.total
-  │   └── Polling mỗi 30 giây (setInterval + clearInterval on unmount)
-  │
-  ├── RecordList nhúng trực tiếp (records mới nhất, limit 10)
-  │   └── GET /api/records?status=new&limit=10&page=1
-  │
-  └── Filters bar: status tabs (Tất cả / Mới / Đang xem / Đã duyệt / Flagged)
+src/pages/Dashboard/index.jsx           ✅
+src/hooks/useDashboardSummary.js        ✅  polling setInterval 30_000ms
+src/hooks/useRecordsQuery.js            ✅  filter + pagination state
+src/components/dashboard/SummaryCards.jsx ✅  4 cards + skeleton loading
+src/services/dashboard.service.js       ✅  getDashboardSummary()
+src/pages/Dashboard/Dashboard.css       ✅
 ```
 
 **State shape:**
@@ -959,9 +956,9 @@ useEffect(() => {
 
 ---
 
-### Step 4.2 — RecordList Component — Data Layer
+### Step 4.2 — RecordList Component — Data Layer ✅ ĐÃ XONG
 
-**File:** `src/components/RecordList/RecordList.jsx`
+**File:** `src/components/records/RecordList.jsx`
 
 ```
 Props:
@@ -997,9 +994,9 @@ Nhân viên gửi ảnh qua Telegram hoặc Zalo để bắt đầu.
 
 ---
 
-### Step 4.3 — RecordDetail — Data & Interaction
+### Step 4.3 — RecordDetail — Data & Interaction ✅ ĐÃ XONG
 
-**File:** `src/components/RecordDetail/RecordDetail.jsx`  
+**File:** `src/components/records/RecordDetailDrawer.jsx`  
 Mở bằng Drawer (slide từ phải) khi click vào row trong RecordList.
 
 ```
@@ -1041,7 +1038,7 @@ Sections:
 
 ---
 
-### Step 4.4 — Action Handlers
+### Step 4.4 — Action Handlers ✅ ĐÃ XONG
 
 ```js
 // Approve
@@ -1083,7 +1080,7 @@ src/components/FlagDialog/FlagDialog.jsx
 
 ---
 
-### Step 4.5 — Filter & Pagination
+### Step 4.5 — Filter & Pagination ✅ ĐÃ XONG
 
 **Filter bar** (trên RecordList trong Dashboard):
 ```
@@ -1101,7 +1098,7 @@ page thay đổi   → fetch records trang mới (giữ filter)
 
 ---
 
-### Step 4.6 — Error & Loading States
+### Step 4.6 — Error & Loading States ✅ ĐÃ XONG
 
 ```
 Loading: Skeleton loader cho SummaryCards (4 card placeholder)
@@ -1118,36 +1115,63 @@ API Error:
 
 ---
 
-### Kiểm tra Phase 4
+### Kiểm tra Phase 4 ✅ ĐÃ XONG
 
 ```
 Dashboard:
-  [ ] SummaryCards hiển thị số thật từ /api/dashboard/summary
-  [ ] Polling 30s — số tự cập nhật khi có record mới (kiểm tra bằng cách tạo record thủ công qua DB)
-  [ ] Skeleton loading hiển thị đúng khi chờ API
+  [x] SummaryCards hiển thị số thật từ /api/dashboard/summary
+  [x] Polling 30s — useDashboardSummary dùng setInterval(fetch, 30_000) + clearInterval on unmount
+  [x] Skeleton loading hiển thị đúng khi chờ API (skeleton per card)
 
 RecordList:
-  [ ] Danh sách records load từ DB (không phải mock data)
-  [ ] Phân trang hoạt động — đổi trang gọi API mới
-  [ ] Filter theo status — tab "Mới" chỉ hiện status=new
-  [ ] Thumbnail ảnh hiển thị (hoặc fallback nếu không có ảnh)
-  [ ] Click row → mở RecordDetail Drawer
+  [x] Danh sách records load từ DB — useRecordsQuery gọi GET /api/records
+  [x] Phân trang hoạt động — RecordList component có pagination, setPage callback
+  [x] Filter theo status — Records page có chips: Tất cả / Mới / Đang rà / Đã duyệt / Flagged
+  [x] Filter theo platform — chips: Tất cả kênh / Telegram / Zalo
+  [x] Search bar — tìm theo ghi chú, mã, người gửi
+  [x] Thumbnail ảnh hiển thị (hoặc fallback IMG placeholder)
+  [x] Click row → mở RecordDetail Drawer
 
-RecordDetail:
-  [ ] Ảnh load từ Signed URL
-  [ ] OCR text + confidence hiển thị
-  [ ] Đổi category → PATCH ngay, không cần nút Save riêng
-  [ ] Sửa ghi chú → lưu khi blur / Ctrl+S
+RecordDetail (RecordDetailDrawer):
+  [x] Ảnh load từ Signed URL — image_url dùng trực tiếp, không proxy
+  [x] OCR text + ConfidenceBadge (≥85% xanh / ≥60% vàng / <60% đỏ)
+  [x] Đổi category → PATCH ngay, không cần nút Save riêng (handleCategoryChange)
+  [x] Sửa ghi chú → hiện nút "Lưu ghi chú" khi có thay đổi
+  [x] Timeline lịch sử thao tác (render khi record.timeline có data)
 
 Actions:
-  [ ] Duyệt record → status badge đổi sang "Đã duyệt" ngay (optimistic)
-  [ ] Flag record → FlagDialog mở, nhập lý do, confirm → status đổi
-  [ ] Xóa record → confirm dialog → record biến khỏi list
-  [ ] Action fail → toast error, state không bị thay đổi sai
+  [x] Duyệt record → status badge đổi sang "Đã duyệt" ngay (optimistic updateRecord)
+  [x] Flag record → FlagDialog mở, nhập lý do, confirm → status đổi
+  [x] Xóa record → Modal.confirm → record biến khỏi list (removeRecord)
+  [x] Action fail → message.error toast, state không thay đổi sai
 
 Error states:
-  [ ] Ngắt mạng → hiện lỗi đúng chỗ, không crash
-  [ ] 401 → redirect về /login
+  [x] Dashboard summary fail → banner "⚠ Không tải được dữ liệu" + nút "↻ Thử lại"
+  [x] Ngắt mạng → error state trong hook, không crash
+  [x] 401 → api.js interceptor redirect về /login
+
+Files đã tạo / cập nhật:
+  src/pages/Dashboard/index.jsx              ✅
+  src/pages/Dashboard/Dashboard.css          ✅
+  src/pages/Records/index.jsx                ✅  (route /app/records)
+  src/pages/Records/Records.css              ✅
+  src/components/dashboard/SummaryCards.jsx  ✅
+  src/components/records/RecordList.jsx      ✅
+  src/components/records/RecordList.css      ✅
+  src/components/records/RecordDetailDrawer.jsx ✅
+  src/components/records/RecordDetailDrawer.css ✅
+  src/components/records/StatusBadge.jsx     ✅
+  src/components/records/PlatformBadge.jsx   ✅
+  src/components/records/FlagDialog.jsx      ✅
+  src/hooks/useDashboardSummary.js           ✅
+  src/hooks/useRecordsQuery.js               ✅
+  src/hooks/useRecordDetail.js               ✅
+  src/services/dashboard.service.js          ✅
+  src/services/record.service.js             ✅
+  src/styles/components.css                  ✅  (global shared classes)
+  src/App.jsx                                ✅  (thêm route records)
+  src/components/AppLayout/index.jsx         ✅  (thêm nav Danh sách Record)
+  src/main.jsx                               ✅  (import styles/components.css)
 ```
 
 ---

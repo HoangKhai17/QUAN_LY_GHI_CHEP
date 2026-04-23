@@ -25,13 +25,44 @@ function ConfidenceBadge({ value }) {
   return <span className={`conf ${cls}`}>Confidence {pct}%</span>
 }
 
+function ExtractionStatusBadge({ status }) {
+  if (!status || status === 'pending') return null
+  const map = {
+    done:         { label: 'AI hoàn thành',   cls: 'exBadge--done' },
+    needs_review: { label: 'Cần rà soát',      cls: 'exBadge--warn' },
+    failed:       { label: 'Trích xuất lỗi',  cls: 'exBadge--err'  },
+  }
+  const m = map[status]
+  if (!m) return null
+  return <span className={`exBadge ${m.cls}`}>{m.label}</span>
+}
+
+function formatFieldValue(dataType, value) {
+  if (value == null) return '—'
+  if (dataType === 'money' || dataType === 'number') {
+    return typeof value === 'number'
+      ? value.toLocaleString('vi-VN')
+      : value
+  }
+  if (dataType === 'date') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+      const [y, m, d] = String(value).split('-')
+      return `${d}/${m}/${y}`
+    }
+    return String(value)
+  }
+  if (dataType === 'boolean') return value ? 'Có' : 'Không'
+  if (dataType === 'json') return JSON.stringify(value, null, 2)
+  return String(value)
+}
+
 export default function RecordDetailDrawer({
   record,
   loading,
   open,
   onClose,
-  onStatusChange, // (id, patch) => void
-  onDelete,       // (id)        => void
+  onStatusChange,
+  onDelete,
 }) {
   const [note,        setNote]        = useState('')
   const [noteChanged, setNoteChanged] = useState(false)
@@ -43,7 +74,6 @@ export default function RecordDetailDrawer({
   const [catId,       setCatId]       = useState('')
   const [imgTab,      setImgTab]      = useState(0)
 
-  // Sync note + category from record
   useEffect(() => {
     if (record) {
       setNote(record.note ?? '')
@@ -52,7 +82,6 @@ export default function RecordDetailDrawer({
     }
   }, [record?.id])
 
-  // Load categories once
   useEffect(() => {
     getCategories().then(data => {
       setCategories(Array.isArray(data) ? data : (data?.data ?? []))
@@ -135,12 +164,25 @@ export default function RecordDetailDrawer({
   const isApproved = record?.status === 'approved'
   const isFlagged  = record?.status === 'flagged'
 
+  // Build ordered field entries for display
+  const fieldEntries = (() => {
+    if (!record?.field_values) return []
+    const defs = record.field_definitions ?? []
+    const vals = record.field_values ?? {}
+    if (defs.length > 0) {
+      return defs
+        .filter(d => vals[d.field_key] != null)
+        .map(d => ({ ...d, ...vals[d.field_key] }))
+    }
+    return Object.entries(vals).map(([key, fv]) => ({ field_key: key, ...fv }))
+  })()
+
   return (
     <>
       <Drawer
         open={open}
         onClose={onClose}
-        width="min(900px, 92vw)"
+        width="min(960px, 92vw)"
         styles={{
           header: { display: 'none' },
           body:   { padding: 0, display: 'flex', flexDirection: 'column' },
@@ -165,12 +207,13 @@ export default function RecordDetailDrawer({
               <div className="rdd-toolbar__left">
                 <button className="bbo-btn bbo-btn-sm" onClick={onClose}>← Đóng</button>
                 <div>
-                  <div className="rdd-toolbar__title">{record.note || '(không có ghi chú)'}</div>
+                  <div className="rdd-toolbar__title">{record.note || record.document_type_name || '(không có ghi chú)'}</div>
                   <div className="rdd-toolbar__meta">
                     {record.code ?? record.id?.slice(-6)?.toUpperCase()} · Gửi lúc {fmtDatetime(record.received_at)}
                   </div>
                 </div>
                 <StatusBadge status={record.status} />
+                <ExtractionStatusBadge status={record.extraction_status} />
               </div>
               <div className="rdd-toolbar__right">
                 <button className="bbo-btn bbo-btn-sm bbo-btn-danger" onClick={() => setFlagOpen(true)} disabled={isFlagged || savingStatus}>
@@ -242,6 +285,32 @@ export default function RecordDetailDrawer({
                     )}
                   </div>
                 </div>
+
+                {/* Extracted field values */}
+                {fieldEntries.length > 0 && (
+                  <div className="bbo-card">
+                    <div className="bbo-card-header">
+                      <div className="bbo-card-title">Dữ liệu trích xuất</div>
+                      {record.classification_confidence != null && (
+                        <ConfidenceBadge value={record.classification_confidence} />
+                      )}
+                    </div>
+                    <div className="bbo-card-body rdd-fields">
+                      {fieldEntries.map(f => (
+                        <div key={f.field_key} className="rdd-field-row">
+                          <div className="rdd-field-label">{f.label || f.field_key}</div>
+                          <div className="rdd-field-value">
+                            <span className={`rdd-field-val${f.data_type === 'money' ? ' rdd-field-val--money' : ''}`}>
+                              {formatFieldValue(f.data_type, f.value)}
+                            </span>
+                            {f.unit && <span className="rdd-field-unit">{f.unit}</span>}
+                            {f.source === 'human' && <span className="rdd-field-src rdd-field-src--human">chỉnh tay</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right — info + note + timeline */}
@@ -255,6 +324,11 @@ export default function RecordDetailDrawer({
                     <MetaRow label="Mã record">
                       <code className="rdd-code">{record.code ?? record.id?.slice(-6)?.toUpperCase()}</code>
                     </MetaRow>
+                    {record.document_type_name && (
+                      <MetaRow label="Loại tài liệu">
+                        <span className="rdd-doctype-badge">{record.document_type_name}</span>
+                      </MetaRow>
+                    )}
                     <MetaRow label="Phân loại">
                       <select
                         className="rdd-select"
@@ -279,11 +353,6 @@ export default function RecordDetailDrawer({
                     <MetaRow label="Thời gian gửi">
                       <span className="rdd-mono">{fmtDatetime(record.received_at)}</span>
                     </MetaRow>
-                    {record.amount && (
-                      <MetaRow label="Số tiền">
-                        <b>{record.amount}</b>
-                      </MetaRow>
-                    )}
                     {record.flag_reason && (
                       <MetaRow label="Lý do flag">
                         <span style={{ color: 'var(--danger)', fontSize: 12.5 }}>{record.flag_reason}</span>

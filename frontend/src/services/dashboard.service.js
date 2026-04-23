@@ -5,7 +5,7 @@ export async function getDashboardSummary() {
   return data
 }
 
-// 14-day activity chart — not in API, use mock bars
-export function getMockActivityChart() {
-  return [48, 72, 44, 101, 81, 117, 92, 108, 132, 107, 123, 98, 137, 111]
+export async function getReportsSummary(params = {}) {
+  const { data } = await api.get('/api/reports/summary', { params })
+  return data
 }

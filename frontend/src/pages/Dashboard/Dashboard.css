@@ -2,8 +2,8 @@
 .dashPage {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 28px;
+  gap: 24px;
+  padding: 32px 32px 0;
   min-height: 100%;
 }
 
@@ -36,13 +36,13 @@
 /* ── Two-panel row ───────────────────────────────────────────────────────── */
 .dashPanels {
   display: grid;
-  grid-template-columns: 1.35fr 1fr;
+  grid-template-columns: 1.7fr 1fr;
   gap: 20px;
   align-items: start;
 }
 
 /* ── Chart card ──────────────────────────────────────────────────────────── */
-.dashChartCard { min-width: 0; }
+.dashChartCard { min-width: 0; min-height: 420px; }
 
 .dash-chart-filters {
   display: flex;
@@ -59,7 +59,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 148px;
+  height: 220px;
   padding: 4px 0 0;
 }
 
@@ -115,6 +115,51 @@
 }
 .dashChart__summary-value--accent { color: var(--primary); }
 
+/* ── Document type breakdown ─────────────────────────────────────────────── */
+.dashDocTypes {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line2);
+}
+.dashDocTypes__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 8px;
+}
+.dashDocTypes__list { display: flex; flex-direction: column; gap: 5px; }
+.dashDocTypes__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+}
+.dashDocTypes__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dashDocTypes__name { flex: 1; color: var(--ink2); }
+.dashDocTypes__count { font-weight: 700; color: var(--ink); min-width: 24px; text-align: right; }
+
+/* Extraction status inline */
+.exSt { font-size: 11px; font-weight: 600; }
+.exSt--warn { color: #d97706; }
+.exSt--err  { color: var(--danger); }
+
+/* Document type pill in pending */
+.docTypePill {
+  display: inline-block;
+  background: #e8f5ee;
+  color: var(--primary);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
 /* ── Pending panel ───────────────────────────────────────────────────────── */
 .dashPendingLink {
   font-size: 12.5px;
@@ -146,7 +191,7 @@
 }
 
 .dashTableGrid {
-  grid-template-columns: 46px 90px minmax(200px, 1.6fr) 130px 100px 90px 96px 40px;
+  grid-template-columns: 46px 100px 1fr 160px 110px 80px 100px 36px;
 }
 
 .dashTableFoot {
@@ -166,7 +211,7 @@
 }
 
 @media (max-width: 768px) {
-  .dashPage { padding: 16px; gap: 16px; }
+  .dashPage { padding: 16px 16px 0; gap: 16px; }
   .dashTableGrid {
     grid-template-columns: 42px minmax(160px, 1fr) 80px 80px 36px;
   }

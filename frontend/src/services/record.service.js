@@ -32,3 +32,8 @@ export async function getCategories() {
   const { data } = await api.get('/api/categories')
   return data
 }
+
+export async function getDocumentTypes() {
+  const { data } = await api.get('/api/document-types')
+  return data // { data: [] }
+}

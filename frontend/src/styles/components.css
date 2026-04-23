@@ -59,7 +59,7 @@
   justify-content: center;
   gap: 6px;
   border: 1px solid var(--line2);
-  border-radius: 8px;
+  border-radius: 10px;
   font-family: 'Montserrat', sans-serif;
   font-weight: 600;
   background: #fff;
@@ -71,9 +71,9 @@
 }
 .bbo-btn:hover    { border-color: #c8d2dc; box-shadow: var(--shadow-sm); transform: translateY(-1px); }
 .bbo-btn:active   { transform: translateY(0); box-shadow: var(--shadow-xs); }
-.bbo-btn-sm  { height: 32px; padding: 0 12px; font-size: 12.5px; }
-.bbo-btn-md  { height: 38px; padding: 0 16px; font-size: 13.5px; }
-.bbo-btn-lg  { height: 46px; padding: 0 20px; font-size: 14px; }
+.bbo-btn-sm  { height: 34px; padding: 0 16px; font-size: 12.5px; }
+.bbo-btn-md  { height: 40px; padding: 0 20px; font-size: 13.5px; }
+.bbo-btn-lg  { height: 48px; padding: 0 26px; font-size: 14px; }
 .bbo-btn-primary {
   background: linear-gradient(180deg, #23934f 0%, var(--primary) 100%);
   color: #fff; border-color: var(--primary);
@@ -89,7 +89,7 @@
 .bbo-card {
   background: #fff;
   border: 1px solid var(--line2);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: var(--shadow-sm);
 }
 .bbo-card-header {
@@ -115,11 +115,16 @@
 .stat-card {
   background: #fff;
   border: 1px solid var(--line2);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 18px 20px;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  transition: box-shadow .15s, transform .15s;
+}
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
 }
 .stat-accent {
   position: absolute;

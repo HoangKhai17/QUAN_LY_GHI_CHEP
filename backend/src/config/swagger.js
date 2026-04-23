@@ -108,24 +108,29 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
         type: 'object',
         description: 'Bản ghi rút gọn — dùng trong danh sách',
         properties: {
-          id:              { type: 'string', format: 'uuid' },
-          platform:        { type: 'string', enum: ['telegram', 'zalo', 'discord'], example: 'telegram' },
-          sender_id:       { type: 'string', format: 'uuid', nullable: true },
-          sender_name:     { type: 'string', example: 'Nguyễn Văn A' },
-          image_url:       { type: 'string', format: 'uri', nullable: true, example: 'https://res.cloudinary.com/...' },
-          image_thumbnail: { type: 'string', format: 'uri', nullable: true },
-          ocr_text:        { type: 'string', nullable: true, example: 'Hóa đơn số 001 ngày 22/04/2026...' },
-          note:            { type: 'string', nullable: true },
-          status:          { type: 'string', enum: ['new', 'reviewed', 'approved', 'flagged', 'deleted'], example: 'new' },
-          flag_reason:     { type: 'string', nullable: true },
-          category_id:     { type: 'string', format: 'uuid', nullable: true },
-          category_name:   { type: 'string', nullable: true, example: 'Hóa đơn' },
-          category_color:  { type: 'string', nullable: true, example: '#1890ff' },
-          ocr_status:      { type: 'string', enum: ['pending', 'done', 'failed'], nullable: true },
-          ocr_confidence:  { type: 'number', nullable: true, example: 0.9 },
-          received_at:     { type: 'string', format: 'date-time' },
-          created_at:      { type: 'string', format: 'date-time' },
-          updated_at:      { type: 'string', format: 'date-time' },
+          id:                        { type: 'string', format: 'uuid' },
+          platform:                  { type: 'string', enum: ['telegram', 'zalo', 'discord'], example: 'telegram' },
+          sender_id:                 { type: 'string', format: 'uuid', nullable: true },
+          sender_name:               { type: 'string', example: 'Nguyễn Văn A' },
+          image_url:                 { type: 'string', format: 'uri', nullable: true, example: 'https://res.cloudinary.com/...' },
+          image_thumbnail:           { type: 'string', format: 'uri', nullable: true },
+          ocr_text:                  { type: 'string', nullable: true, example: 'Hóa đơn số 001 ngày 22/04/2026...' },
+          note:                      { type: 'string', nullable: true },
+          status:                    { type: 'string', enum: ['new', 'reviewed', 'approved', 'flagged', 'deleted'], example: 'new' },
+          flag_reason:               { type: 'string', nullable: true },
+          category_id:               { type: 'string', format: 'uuid', nullable: true },
+          category_name:             { type: 'string', nullable: true, example: 'Hóa đơn' },
+          category_color:            { type: 'string', nullable: true, example: '#1890ff' },
+          document_type_id:          { type: 'string', format: 'uuid', nullable: true, description: 'UUID loại tài liệu (từ document_types)' },
+          document_type_code:        { type: 'string', nullable: true, example: 'bank_transfer' },
+          document_type_name:        { type: 'string', nullable: true, example: 'Chuyển khoản ngân hàng' },
+          extraction_status:         { type: 'string', enum: ['pending','done','needs_review','failed'], nullable: true, example: 'done' },
+          classification_confidence: { type: 'number', nullable: true, example: 0.88 },
+          ocr_status:                { type: 'string', enum: ['pending', 'done', 'failed'], nullable: true },
+          ocr_confidence:            { type: 'number', nullable: true, example: 0.9 },
+          received_at:               { type: 'string', format: 'date-time' },
+          created_at:                { type: 'string', format: 'date-time' },
+          updated_at:                { type: 'string', format: 'date-time' },
         },
       },
 
@@ -145,6 +150,21 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
               approved_at:      { type: 'string', format: 'date-time', nullable: true },
               source_chat_id:   { type: 'string', nullable: true },
               source_chat_type: { type: 'string', enum: ['private', 'group', 'channel'], nullable: true },
+              extracted_data:   { type: 'object', nullable: true, description: 'Raw JSON từ AI/OCR provider' },
+              field_definitions: {
+                type: 'array',
+                description: 'Danh sách trường của loại tài liệu (dùng cho hiển thị có thứ tự)',
+                items: { $ref: '#/components/schemas/DocumentTypeField' },
+              },
+              field_values: {
+                type: 'object',
+                description: 'Object keyed by field_key — giá trị trích xuất/chỉnh sửa từng trường',
+                additionalProperties: { $ref: '#/components/schemas/RecordFieldValue' },
+                example: {
+                  amount: { label: 'Số tiền', data_type: 'money', value: 1500000, source: 'ai', confidence: 0.88 },
+                  transfer_date: { label: 'Ngày chuyển khoản', data_type: 'date', value: '2026-04-23', source: 'ai' },
+                },
+              },
             },
           },
         ],
@@ -169,17 +189,62 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
           page:  { type: 'integer', example: 1 },
         },
       },
+
+      // ── Document Types ─────────────────────────────────────────────────────
+      DocumentTypeField: {
+        type: 'object',
+        properties: {
+          id:               { type: 'string', format: 'uuid' },
+          field_key:        { type: 'string', example: 'amount' },
+          label:            { type: 'string', example: 'Số tiền' },
+          data_type:        { type: 'string', enum: ['text','number','date','datetime','boolean','json','money'], example: 'money' },
+          unit:             { type: 'string', nullable: true, example: 'VND' },
+          is_required:      { type: 'boolean', example: false },
+          is_filterable:    { type: 'boolean', example: true },
+          is_reportable:    { type: 'boolean', example: true },
+          aggregation_type: { type: 'string', enum: ['none','sum','avg','count','min','max'], example: 'sum' },
+          display_order:    { type: 'integer', example: 1 },
+        },
+      },
+
+      DocumentType: {
+        type: 'object',
+        properties: {
+          id:                  { type: 'string', format: 'uuid' },
+          code:                { type: 'string', example: 'bank_transfer' },
+          name:                { type: 'string', example: 'Chuyển khoản ngân hàng' },
+          description:         { type: 'string', nullable: true },
+          default_category_id: { type: 'string', format: 'uuid', nullable: true },
+          is_active:           { type: 'boolean', example: true },
+          created_at:          { type: 'string', format: 'date-time' },
+          fields:              { type: 'array', items: { $ref: '#/components/schemas/DocumentTypeField' } },
+        },
+      },
+
+      RecordFieldValue: {
+        type: 'object',
+        description: 'Giá trị trích xuất của một trường trong record (keyed by field_key)',
+        properties: {
+          label:      { type: 'string', example: 'Số tiền' },
+          data_type:  { type: 'string', example: 'money' },
+          value:      { description: 'Giá trị thực — number, string, boolean, object tuỳ data_type', example: 1500000 },
+          source:     { type: 'string', enum: ['ai', 'human', 'rule'], example: 'ai' },
+          confidence: { type: 'number', nullable: true, example: 0.88 },
+        },
+      },
     },
   },
 
   // ── Tags ─────────────────────────────────────────────────────────────────────
   tags: [
-    { name: 'Auth',       description: 'Đăng nhập, refresh token, logout, đổi mật khẩu' },
-    { name: 'Users',      description: 'Quản lý tài khoản nội bộ — admin/manager' },
-    { name: 'Records',    description: 'Ghi chép nhận từ các nền tảng (Telegram, Zalo...)' },
-    { name: 'Categories', description: 'Danh mục phân loại ghi chép' },
-    { name: 'Dashboard',  description: 'Thống kê tổng quan' },
-    { name: 'Search',     description: 'Tìm kiếm toàn văn (full-text search)' },
+    { name: 'Auth',          description: 'Đăng nhập, refresh token, logout, đổi mật khẩu' },
+    { name: 'Users',         description: 'Quản lý tài khoản nội bộ — admin/manager' },
+    { name: 'Records',       description: 'Ghi chép nhận từ các nền tảng (Telegram, Zalo...)' },
+    { name: 'DocumentTypes', description: 'Loại tài liệu động và định nghĩa trường' },
+    { name: 'Categories',    description: 'Danh mục phân loại ghi chép' },
+    { name: 'Dashboard',     description: 'Thống kê tổng quan' },
+    { name: 'Reports',       description: 'Báo cáo tổng hợp theo loại tài liệu, ngày, kênh' },
+    { name: 'Search',        description: 'Tìm kiếm toàn văn (full-text search)' },
   ],
 
   // ── Paths ─────────────────────────────────────────────────────────────────────
@@ -554,6 +619,8 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
           },
           { name: 'sender_id',   in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'UUID của user gửi' },
           { name: 'category_id', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'UUID của danh mục' },
+          { name: 'document_type_id', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'Lọc theo loại tài liệu' },
+          { name: 'extraction_status', in: 'query', schema: { type: 'string', enum: ['pending','done','needs_review','failed'] }, description: 'Lọc theo trạng thái trích xuất AI' },
           { name: 'date_from',   in: 'query', schema: { type: 'string', format: 'date', example: '2026-04-01' }, description: 'Từ ngày (received_at >=)' },
           { name: 'date_to',     in: 'query', schema: { type: 'string', format: 'date', example: '2026-04-30' }, description: 'Đến ngày (received_at <=, inclusive)' },
           { name: 'page',        in: 'query', schema: { type: 'integer', default: 1 } },
@@ -597,10 +664,16 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
             'application/json': {
               schema: {
                 type: 'object',
-                description: 'Truyền ít nhất 1 trong 2 field',
+                description: 'Truyền ít nhất 1 field. field_values là object keyed by field_key.',
                 properties: {
-                  note:        { type: 'string', nullable: true, example: 'Hóa đơn mua văn phòng phẩm tháng 4' },
-                  category_id: { type: 'string', format: 'uuid', nullable: true, example: 'a1b2c3d4-0000-0000-0000-000000000001' },
+                  note:             { type: 'string', nullable: true, example: 'Hóa đơn mua văn phòng phẩm tháng 4' },
+                  category_id:      { type: 'string', format: 'uuid', nullable: true, example: 'a1b2c3d4-0000-0000-0000-000000000001' },
+                  document_type_id: { type: 'string', format: 'uuid', nullable: true, description: 'Gán / đổi loại tài liệu' },
+                  field_values: {
+                    type: 'object',
+                    description: 'Chỉnh sửa giá trị trích xuất từng trường. Key = field_key, value = giá trị thô.',
+                    example: { amount: 1500000, bank_name: 'Vietcombank', transfer_date: '2026-04-23' },
+                  },
                 },
               },
             },
@@ -679,6 +752,80 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
           400: { description: 'status không hợp lệ / thiếu flag_reason', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           401: { description: 'Chưa đăng nhập', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // DOCUMENT TYPES
+    // ════════════════════════════════════════════════════════════════════════════
+
+    '/api/document-types': {
+      get: {
+        tags: ['DocumentTypes'],
+        summary: 'Danh sách loại tài liệu',
+        description: 'Trả về tất cả loại tài liệu đang active. Truyền `include_inactive=true` để lấy cả loại đã ẩn.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'include_inactive', in: 'query', schema: { type: 'string', enum: ['true','false'] }, description: 'Lấy cả loại không active' },
+        ],
+        responses: {
+          200: {
+            description: 'Danh sách loại tài liệu (không kèm fields array để giảm payload)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/DocumentType' } },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Chưa đăng nhập', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/document-types/{id}': {
+      get: {
+        tags: ['DocumentTypes'],
+        summary: 'Chi tiết loại tài liệu (kèm fields)',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: {
+          200: { description: 'Chi tiết loại tài liệu kèm danh sách trường', content: { 'application/json': { schema: { $ref: '#/components/schemas/DocumentType' } } } },
+          404: { description: 'Không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/document-types/{id}/fields': {
+      get: {
+        tags: ['DocumentTypes'],
+        summary: 'Chỉ lấy danh sách trường của loại tài liệu',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: {
+          200: {
+            description: 'Danh sách trường',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/DocumentTypeField' } },
+                  },
+                },
+              },
+            },
+          },
           404: { description: 'Không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
@@ -825,6 +972,148 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
             },
           },
           401: { description: 'Chưa đăng nhập', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // REPORTS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    '/api/reports/summary': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Thống kê tổng hợp (by status / platform / doc type / category / timeline)',
+        description: 'Quyền: **admin** hoặc **manager**. Trả về nhiều chiều thống kê theo bộ lọc chung.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'date_from',        in: 'query', schema: { type: 'string', format: 'date', example: '2026-04-01' } },
+          { name: 'date_to',          in: 'query', schema: { type: 'string', format: 'date', example: '2026-04-30' } },
+          { name: 'document_type_id', in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'category_id',      in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'platform',         in: 'query', schema: { type: 'string', enum: ['telegram','zalo'] } },
+        ],
+        responses: {
+          200: {
+            description: 'Thống kê tổng hợp',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    by_status:        { type: 'array', items: { type: 'object', properties: { status: { type: 'string' }, count: { type: 'integer' } } } },
+                    by_platform:      { type: 'array', items: { type: 'object', properties: { platform: { type: 'string' }, count: { type: 'integer' } } } },
+                    by_document_type: { type: 'array', items: { type: 'object', properties: { code: { type: 'string' }, name: { type: 'string' }, count: { type: 'integer' } } } },
+                    by_category:      { type: 'array', items: { type: 'object', properties: { category_name: { type: 'string' }, color: { type: 'string' }, count: { type: 'integer' } } } },
+                    timeline:         { type: 'array', items: { type: 'object', properties: { date: { type: 'string', format: 'date' }, count: { type: 'integer' } } } },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/reports/financial': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Báo cáo tài chính — tổng hợp các trường aggregation_type=sum',
+        description: `Quyền: **admin** hoặc **manager**. Mặc định chỉ tính record **đã duyệt** (status=approved). Truyền \`include_unapproved=true\` để tính tất cả.
+
+Tổng hợp theo **metadata** từ \`document_type_fields.aggregation_type\` — không giả định cột cố định nào.`,
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'include_unapproved', in: 'query', schema: { type: 'string', enum: ['true','false'] }, description: 'Tính cả record chưa duyệt' },
+          { name: 'date_from',          in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'date_to',            in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'document_type_id',   in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'category_id',        in: 'query', schema: { type: 'string', format: 'uuid' } },
+          { name: 'platform',           in: 'query', schema: { type: 'string', enum: ['telegram','zalo'] } },
+        ],
+        responses: {
+          200: {
+            description: 'Kết quả tổng hợp tài chính',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    total_records: { type: 'integer', example: 42 },
+                    aggregations: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          document_type_code: { type: 'string', example: 'bank_transfer' },
+                          document_type_name: { type: 'string', example: 'Chuyển khoản ngân hàng' },
+                          field_key:          { type: 'string', example: 'amount' },
+                          field_label:        { type: 'string', example: 'Số tiền' },
+                          unit:               { type: 'string', nullable: true, example: 'VND' },
+                          record_count:       { type: 'integer', example: 12 },
+                          total:              { type: 'number', example: 18000000 },
+                          average:            { type: 'number', example: 1500000 },
+                          min:                { type: 'number', example: 200000 },
+                          max:                { type: 'number', example: 5000000 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/reports/by-type/{code}': {
+      get: {
+        tags: ['Reports'],
+        summary: 'Báo cáo chi tiết theo loại tài liệu',
+        description: 'Quyền: **admin** hoặc **manager**. Tổng hợp tất cả trường is_reportable=true của loại tài liệu đó.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'code', in: 'path', required: true, schema: { type: 'string', example: 'bank_transfer' }, description: 'Code của document type' },
+          { name: 'include_unapproved', in: 'query', schema: { type: 'string', enum: ['true','false'] } },
+          { name: 'date_from', in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'date_to',   in: 'query', schema: { type: 'string', format: 'date' } },
+          { name: 'platform',  in: 'query', schema: { type: 'string', enum: ['telegram','zalo'] } },
+        ],
+        responses: {
+          200: {
+            description: 'Báo cáo theo loại tài liệu',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    document_type:  { $ref: '#/components/schemas/DocumentType' },
+                    total_records:  { type: 'integer', example: 18 },
+                    aggregations: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          field_key:        { type: 'string', example: 'amount' },
+                          label:            { type: 'string', example: 'Số tiền' },
+                          data_type:        { type: 'string', example: 'money' },
+                          unit:             { type: 'string', nullable: true },
+                          aggregation_type: { type: 'string', example: 'sum' },
+                          result:           { example: 18000000 },
+                          count:            { type: 'integer', example: 18 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Loại tài liệu không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
     },

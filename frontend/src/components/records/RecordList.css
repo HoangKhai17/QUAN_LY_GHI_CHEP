@@ -16,12 +16,20 @@
   white-space: nowrap;
 }
 
-/* Amount */
-.recListAmount {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink);
+/* Document type pill */
+.recListDocType { display: flex; align-items: center; }
+.recListDocTypePill {
+  display: inline-block;
+  background: #e8f5ee;
+  color: #1f7a43;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
 }
 
 /* Row action buttons */

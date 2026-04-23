@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import SummaryCards from '../../components/dashboard/SummaryCards'
 import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
@@ -8,14 +8,34 @@ import FlagDialog from '../../components/records/FlagDialog'
 import useDashboardSummary from '../../hooks/useDashboardSummary'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
-import { getMockActivityChart } from '../../services/dashboard.service'
+import { getReportsSummary } from '../../services/dashboard.service'
 import { updateRecordStatus } from '../../services/record.service'
 import { message } from 'antd'
 import './Dashboard.css'
 
-const CHART_BARS = getMockActivityChart()
-const CHART_MAX  = Math.max(...CHART_BARS)
-const CHART_DAYS = ['T2','T3','T4','T5','T6','T7','CN','T2','T3','T4','T5','T6','T7','CN']
+const WEEK_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+
+function buildLast14Days() {
+  const to = new Date()
+  const from = new Date(+to - 13 * 86400_000)
+  return {
+    date_from: from.toISOString().slice(0, 10),
+    date_to:   to.toISOString().slice(0, 10),
+  }
+}
+
+function fillTimeline(tlRows) {
+  const map = Object.fromEntries((tlRows ?? []).map(r => [r.date, r.count]))
+  const result = []
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = d.toISOString().slice(0, 10)
+    const dow = d.getDay() // 0=Sun…6=Sat
+    result.push({ key, label: WEEK_LABELS[(dow + 6) % 7], count: map[key] ?? 0 })
+  }
+  return result
+}
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -26,9 +46,32 @@ function initials(name = '') {
   return name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
 }
 
+const DOC_TYPE_COLORS = [
+  '#1f7a43', '#2563eb', '#d97706', '#7c3aed',
+  '#db2777', '#0891b2', '#65a30d', '#dc2626',
+]
+
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { summary, loading: loadingSummary, error: summaryErr, refetch: refetchSummary } = useDashboardSummary(30_000)
+
+  // Chart / reports state
+  const [chartDays,    setChartDays]    = useState([])
+  const [byPlatform,   setByPlatform]   = useState([])
+  const [byDocType,    setByDocType]    = useState([])
+
+  useEffect(() => {
+    getReportsSummary(buildLast14Days()).then(data => {
+      setChartDays(fillTimeline(data.timeline))
+      setByPlatform(data.by_platform ?? [])
+      setByDocType((data.by_document_type ?? []).slice(0, 5))
+    }).catch(() => {
+      // fallback: empty chart (no mock)
+      setChartDays(fillTimeline([]))
+    })
+  }, [])
+
+  const chartMax = Math.max(...chartDays.map(d => d.count), 1)
 
   // Pending panel — status=new, limit 4
   const { records: pendingRecs, loading: loadingPending } = useRecordsQuery({ status: 'new' }, 4)
@@ -68,6 +111,14 @@ export default function DashboardPage() {
     setDetailOpen(true)
   }
 
+  // Platform percentage helper
+  const totalPlatform = byPlatform.reduce((s, r) => s + Number(r.count), 0)
+  function platformPct(name) {
+    const row = byPlatform.find(r => r.platform === name)
+    if (!row || !totalPlatform) return '—'
+    return `${Math.round((Number(row.count) / totalPlatform) * 100)}%`
+  }
+
   return (
     <div className="dashPage">
       {/* ── Toolbar ── */}
@@ -98,44 +149,51 @@ export default function DashboardPage() {
         <div className="bbo-card dashChartCard">
           <div className="bbo-card-header">
             <div className="bbo-card-title">Hoạt động tiếp nhận (14 ngày)</div>
-            <div className="dash-chart-filters">
-              <span className="dash-filter-chip dash-filter-chip--active">Tất cả kênh</span>
-              <span className="dash-filter-chip dash-filter-chip--muted">Telegram</span>
-              <span className="dash-filter-chip dash-filter-chip--muted">Zalo</span>
-            </div>
           </div>
           <div className="bbo-card-body">
             <div className="dashChart">
               <div className="dashChart__bars">
-                {CHART_BARS.map((v, i) => {
-                  const isLast = i === CHART_BARS.length - 1
-                  const isPrev = i === CHART_BARS.length - 2
-                  return (
-                    <div key={i} className="dashChart__col">
-                      <div
-                        className={`dashChart__bar${isLast ? ' dashChart__bar--primary' : isPrev ? ' dashChart__bar--lime' : ''}`}
-                        style={{ height: `${Math.round((v / CHART_MAX) * 140)}px` }}
-                      />
-                    </div>
-                  )
-                })}
+                {chartDays.length === 0
+                  ? Array.from({ length: 14 }).map((_, i) => (
+                      <div key={i} className="dashChart__col">
+                        <div className="dashChart__bar" style={{ height: '4px' }} />
+                      </div>
+                    ))
+                  : chartDays.map((d, i) => {
+                      const isLast = i === chartDays.length - 1
+                      const isPrev = i === chartDays.length - 2
+                      return (
+                        <div key={d.key} className="dashChart__col" title={`${d.key}: ${d.count} record`}>
+                          <div
+                            className={`dashChart__bar${isLast ? ' dashChart__bar--primary' : isPrev ? ' dashChart__bar--lime' : ''}`}
+                            style={{ height: `${Math.max(4, Math.round((d.count / chartMax) * 210))}px` }}
+                          />
+                        </div>
+                      )
+                    })
+                }
               </div>
               <div className="dashChart__labels">
-                {CHART_DAYS.map((d, i) => <div key={i}>{d}</div>)}
+                {(chartDays.length > 0 ? chartDays : Array.from({ length: 14 }, (_, i) => ({ label: WEEK_LABELS[i % 7] }))).map((d, i) => (
+                  <div key={i}>{d.label}</div>
+                ))}
               </div>
             </div>
+
             <div className="dashChart__summary">
               <div>
                 <div className="dashChart__summary-label">Telegram</div>
-                <div className="dashChart__summary-value">68%</div>
+                <div className="dashChart__summary-value">{platformPct('telegram')}</div>
               </div>
               <div>
                 <div className="dashChart__summary-label">Zalo</div>
-                <div className="dashChart__summary-value">32%</div>
+                <div className="dashChart__summary-value">{platformPct('zalo')}</div>
               </div>
               <div>
-                <div className="dashChart__summary-label">Peak giờ</div>
-                <div className="dashChart__summary-value">14:00</div>
+                <div className="dashChart__summary-label">Tổng 14 ngày</div>
+                <div className="dashChart__summary-value">
+                  {chartDays.reduce((s, d) => s + d.count, 0)}
+                </div>
               </div>
               <div>
                 <div className="dashChart__summary-label">Tỷ lệ duyệt</div>
@@ -144,6 +202,22 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* Document type breakdown */}
+            {byDocType.length > 0 && (
+              <div className="dashDocTypes">
+                <div className="dashDocTypes__title">Theo loại tài liệu (14 ngày)</div>
+                <div className="dashDocTypes__list">
+                  {byDocType.map((dt, i) => (
+                    <div key={dt.code} className="dashDocTypes__item">
+                      <span className="dashDocTypes__dot" style={{ background: DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length] }} />
+                      <span className="dashDocTypes__name">{dt.name || dt.code}</span>
+                      <span className="dashDocTypes__count">{dt.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -175,9 +249,10 @@ export default function DashboardPage() {
               <div key={r.id} className="pending-item" style={{ cursor: 'pointer' }} onClick={() => openDetail(r)}>
                 <div className="img-ph pending-item__thumb">IMG</div>
                 <div className="pending-item__body">
-                  <div className="pending-item__title">{r.note || '(không có ghi chú)'}</div>
+                  <div className="pending-item__title">{r.note || r.document_type_name || '(không có ghi chú)'}</div>
                   <div className="pending-item__meta">
                     {r.sender_name} · {r.platform} · {fmtTime(r.received_at)}
+                    {r.document_type_name && <> · <span className="docTypePill">{r.document_type_name}</span></>}
                   </div>
                 </div>
                 <StatusBadge status={r.status} />
@@ -191,7 +266,7 @@ export default function DashboardPage() {
             <button
               className="bbo-btn bbo-btn-md bbo-btn-primary bbo-btn-full"
               style={{ marginTop: 12 }}
-              onClick={() => navigate('/app/quick-review')}
+              onClick={() => navigate('/app/records?status=new')}
             >
               Bắt đầu rà soát nhanh →
             </button>
@@ -204,21 +279,17 @@ export default function DashboardPage() {
         <div className="bbo-card-header">
           <div className="bbo-card-title">Record mới nhất</div>
           <div className="dashTableToolbar">
-            <span className="tbl-filter-tab tbl-filter-tab--active">Tất cả</span>
-            <span className="tbl-filter-tab">Telegram</span>
-            <span className="tbl-filter-tab">Zalo</span>
             <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/records')}>
               Xem đầy đủ →
             </button>
           </div>
         </div>
 
-        {/* Mini table — simpler columns */}
         <div className="rec-table-wrap">
           <div className="rec-table-head dashTableGrid">
             <div />
             <div>Mã record</div>
-            <div>Ghi chú</div>
+            <div>Ghi chú / Loại tài liệu</div>
             <div>Người gửi</div>
             <div>Nền tảng</div>
             <div>Thời gian</div>
@@ -243,7 +314,15 @@ export default function DashboardPage() {
             <div key={r.id} className="rec-table-row dashTableGrid" onClick={() => openDetail(r)}>
               <div className="img-ph rec-table__thumb">IMG</div>
               <div className="rec-table__code">{r.code ?? r.id?.slice(-6)?.toUpperCase()}</div>
-              <div className="rec-table__note">{r.note || '(không có ghi chú)'}</div>
+              <div className="recListNoteCell">
+                <div className="rec-table__note">{r.note || r.document_type_name || '(không có ghi chú)'}</div>
+                {r.document_type_name && (
+                  <div className="recListSub">{r.document_type_name}
+                    {r.extraction_status === 'needs_review' && <span className="exSt exSt--warn"> · Cần rà soát</span>}
+                    {r.extraction_status === 'failed' && <span className="exSt exSt--err"> · Trích xuất lỗi</span>}
+                  </div>
+                )}
+              </div>
               <div className="rec-table__sender">
                 <div className="avatar-sm">{initials(r.sender_name)}</div>
                 <span className="rec-table__sender-name">{r.sender_name ?? '—'}</span>
@@ -257,7 +336,7 @@ export default function DashboardPage() {
 
           {!loadingRecords && records.length === 0 && (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink3)', fontSize: 13 }}>
-              Chưa có record nào hôm nay
+              Chưa có record nào — gửi ảnh qua Telegram/Zalo để bắt đầu
             </div>
           )}
 

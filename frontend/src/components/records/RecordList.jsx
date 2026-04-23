@@ -109,7 +109,7 @@ export default function RecordList({
           {show('code')     && <div>Mã</div>}
           {show('note')     && <div>Ghi chú / Thông tin</div>}
           {show('sender')   && <div>Người gửi</div>}
-          {show('amount')   && <div>Số tiền</div>}
+          {show('doctype')  && <div>Loại tài liệu</div>}
           {show('platform') && <div>Kênh</div>}
           {show('status')   && <div>Trạng thái</div>}
           {show('time')     && <div>Thời gian</div>}
@@ -123,7 +123,7 @@ export default function RecordList({
             {show('code')     && <div className="skeleton" style={{ width: 72, height: 14 }} />}
             {show('note')     && <div className="skeleton" style={{ width: '80%', height: 14 }} />}
             {show('sender')   && <div className="skeleton" style={{ width: 90, height: 14 }} />}
-            {show('amount')   && <div className="skeleton" style={{ width: 80, height: 14 }} />}
+            {show('doctype')  && <div className="skeleton" style={{ width: 80, height: 22, borderRadius: 6 }} />}
             {show('platform') && <div className="skeleton" style={{ width: 70, height: 22, borderRadius: 999 }} />}
             {show('status')   && <div className="skeleton" style={{ width: 70, height: 22, borderRadius: 999 }} />}
             {show('time')     && <div className="skeleton" style={{ width: 64, height: 14 }} />}
@@ -159,11 +159,15 @@ export default function RecordList({
             )}
             {show('note') && (
               <div className="recListNoteCell">
-                <div className="rec-table__note">{r.note || '(không có ghi chú)'}</div>
-                {r.category_name && (
+                <div className="rec-table__note">{r.note || r.document_type_name || '(không có ghi chú)'}</div>
+                {(r.category_name || r.extraction_status) && (
                   <div className="recListSub">
                     {r.category_name}
-                    {r.ocr_confidence != null && ` · OCR ${Math.round(r.ocr_confidence * 100)}%`}
+                    {r.category_name && r.extraction_status && ' · '}
+                    {r.extraction_status === 'needs_review' && <span style={{ color: '#d97706' }}>Cần rà soát</span>}
+                    {r.extraction_status === 'failed' && <span style={{ color: 'var(--danger)' }}>Lỗi trích xuất</span>}
+                    {r.classification_confidence != null && r.extraction_status === 'done' &&
+                      ` · AI ${Math.round(r.classification_confidence * 100)}%`}
                   </div>
                 )}
               </div>
@@ -174,8 +178,12 @@ export default function RecordList({
                 <span className="rec-table__sender-name">{r.sender_name ?? '—'}</span>
               </div>
             )}
-            {show('amount') && (
-              <div className="recListAmount">{r.amount ?? '—'}</div>
+            {show('doctype') && (
+              <div className="recListDocType">
+                {r.document_type_name
+                  ? <span className="recListDocTypePill">{r.document_type_name}</span>
+                  : <span style={{ color: 'var(--ink3)', fontSize: 12 }}>—</span>}
+              </div>
             )}
             {show('platform') && (
               <div><PlatformBadge platform={r.platform} /></div>

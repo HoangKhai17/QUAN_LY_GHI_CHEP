@@ -69,14 +69,15 @@ app.use('/api-docs', (req, res, next) => {
 // ── Routes ───────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', env: process.env.NODE_ENV }))
 
-app.use('/api/auth',       require('./modules/auth/auth.router'))
-app.use('/api/users',      require('./modules/users/users.router'))
-app.use('/api/records',    require('./modules/records/records.router'))
-app.use('/api/categories', require('./modules/categories/categories.router'))
-app.use('/api/dashboard',  require('./modules/dashboard/dashboard.router'))
-app.use('/api/search',     require('./modules/search/search.router'))
-app.use('/api/reports',    require('./modules/reports/reports.router'))
-app.use('/api/notifications', require('./modules/notifications/notifications.router'))
+app.use('/api/auth',           require('./modules/auth/auth.router'))
+app.use('/api/users',          require('./modules/users/users.router'))
+app.use('/api/records',        require('./modules/records/records.router'))
+app.use('/api/categories',     require('./modules/categories/categories.router'))
+app.use('/api/document-types', require('./modules/document-types/document-types.router'))
+app.use('/api/dashboard',      require('./modules/dashboard/dashboard.router'))
+app.use('/api/search',         require('./modules/search/search.router'))
+app.use('/api/reports',        require('./modules/reports/reports.router'))
+app.use('/api/notifications',  require('./modules/notifications/notifications.router'))
 
 // ── Multi-platform webhook (/webhook/zalo, /webhook/telegram, ...) ──
 app.use('/webhook',       require('./modules/webhook/webhook.router'))

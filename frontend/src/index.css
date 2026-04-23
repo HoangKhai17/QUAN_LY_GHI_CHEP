@@ -14,6 +14,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Force Montserrat globally — overrides Ant Design default font injection */
+* {
+  font-family: inherit;
+}
+
 #root {
   width: 100%;
   min-height: 100vh;

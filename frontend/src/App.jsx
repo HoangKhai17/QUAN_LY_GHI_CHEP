@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { ConfigProvider } from 'antd'
 import ProtectedRoute  from './routes/ProtectedRoute'
 import LoginPage       from './pages/Login'
 import AppLayout       from './components/AppLayout'
@@ -6,8 +7,17 @@ import DashboardPage   from './pages/Dashboard'
 import RecordsPage     from './pages/Records'
 import PlaceholderPage from './pages/Placeholder'
 
+const ANT_THEME = {
+  token: {
+    fontFamily: "'Montserrat', -apple-system, BlinkMacSystemFont, sans-serif",
+    colorPrimary: '#1f7a43',
+    borderRadius: 10,
+  },
+}
+
 export default function App() {
   return (
+    <ConfigProvider theme={ANT_THEME}>
     <BrowserRouter>
       <Routes>
         {/* Redirect root → login */}
@@ -38,5 +48,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
+    </ConfigProvider>
   )
 }

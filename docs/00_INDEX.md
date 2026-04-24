@@ -15,6 +15,7 @@
 | 06 | [🔍 Debugging & Observability](./06_DEBUGGING_OBSERVABILITY.md) | Logging, Sentry, Grafana, testing strategy |
 | 07 | [📊 Phân tích cạnh tranh](./07_COMPETITIVE_ANALYSIS.md) | So sánh thị trường, điểm cần cải thiện, roadmap |
 | 08 | [🏗️ Build Plan chi tiết](./08_BUILD_PLAN.md) | 9 phases, step-by-step. Phase 0–5 ✅ Done. Phase 6–8 planned. |
+| 09 | [⚡ Performance & Optimization Checklist](./09_PERFORMANCE_CHECKLIST.md) | Checklist DB, query, API, frontend — dùng khi build tính năng mới hoặc chẩn đoán chậm |
 
 ---
 

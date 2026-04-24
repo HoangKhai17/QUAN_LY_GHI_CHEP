@@ -70,11 +70,12 @@ function buildFvCondition(fieldKey, op, rawVal, params) {
   params.push(castVal)
   const valN = params.length
 
+  // Resolve field_key → field_id via subquery (avoids JOIN at outer level)
+  // document_type_fields is tiny; IN subquery uses idx_dtf_type_order
   return `EXISTS (
     SELECT 1 FROM record_field_values rfv_fv
-    JOIN document_type_fields dtf_fv ON dtf_fv.id = rfv_fv.field_id
     WHERE rfv_fv.record_id = r.id
-      AND dtf_fv.field_key = $${keyN}
+      AND rfv_fv.field_id IN (SELECT id FROM document_type_fields WHERE field_key = $${keyN})
       AND ${col} ${sqlOp} $${valN}
   )`
 }
@@ -137,17 +138,30 @@ router.post('/', upload.array('images', 3), async (req, res) => {
       // Run OCR + normalization asynchronously — don't block the response
       const recordId = record.id
       setImmediate(async () => {
+        // Phase 1: external calls (OCR + normalize) — outside any transaction
+        let ocrResult, extraction = null
         try {
-          const ocrResult = await ocrService.extractText(image_url)
-          let extraction  = null
-
+          ocrResult = await ocrService.extractText(image_url)
           if (ocrResult.status === 'success') {
             try { extraction = await normalize(ocrResult) } catch (normErr) {
               logger.warn('records.manual.normalize_error', { recordId, error: normErr.message })
             }
           }
-
+        } catch (ocrErr) {
+          logger.warn('records.manual.ocr_failed', { recordId, error: ocrErr.message })
           await db.query(
+            `UPDATE records SET ocr_status = 'failed', extraction_status = 'failed', updated_at = NOW() WHERE id = $1`,
+            [recordId]
+          )
+          return
+        }
+
+        // Phase 2: DB writes — wrapped in transaction so UPDATE + upsertMany are atomic
+        const client = await db.pool.connect()
+        try {
+          await client.query('BEGIN')
+
+          await client.query(
             `UPDATE records SET
                ocr_text = $1, ocr_status = $2, ocr_confidence = $3,
                document_type_id         = COALESCE($4, document_type_id),
@@ -170,16 +184,20 @@ router.post('/', upload.array('images', 3), async (req, res) => {
           )
 
           if (extraction?.fieldEntries?.length) {
-            await rfvService.upsertMany(recordId, extraction.fieldEntries)
+            await rfvService.upsertMany(recordId, extraction.fieldEntries, client)
           }
 
+          await client.query('COMMIT')
           logger.info('records.manual.ocr_done', { recordId, ocrStatus: ocrResult.status })
-        } catch (ocrErr) {
-          logger.warn('records.manual.ocr_failed', { recordId, error: ocrErr.message })
+        } catch (dbErr) {
+          await client.query('ROLLBACK').catch(() => {})
+          logger.warn('records.manual.ocr_db_failed', { recordId, error: dbErr.message })
           await db.query(
             `UPDATE records SET ocr_status = 'failed', extraction_status = 'failed', updated_at = NOW() WHERE id = $1`,
             [recordId]
           )
+        } finally {
+          client.release()
         }
       })
     } catch (uploadErr) {
@@ -240,9 +258,8 @@ router.get('/stats', async (req, res) => {
     conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
 
   if (search?.trim()) {
-    const q = `%${search.trim()}%`
     conditions.push(
-      `(r.note ILIKE $${params.push(q)} OR r.sender_name ILIKE $${params.push(q)} OR r.ocr_text ILIKE $${params.push(q)})`
+      `to_tsvector('simple', coalesce(r.note,'') || ' ' || coalesce(r.ocr_text,'') || ' ' || coalesce(r.sender_name,'')) @@ plainto_tsquery('simple', $${params.push(search.trim())})`
     )
   }
   if (date_from) conditions.push(`r.received_at >= $${params.push(date_from)}`)
@@ -319,11 +336,10 @@ router.get('/', async (req, res) => {
     conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
   }
 
-  // search — full-text ILIKE across note, sender_name, ocr_text
+  // search — full-text search via GIN index (idx_records_fts)
   if (search?.trim()) {
-    const q = `%${search.trim()}%`
     conditions.push(
-      `(r.note ILIKE $${params.push(q)} OR r.sender_name ILIKE $${params.push(q)} OR r.ocr_text ILIKE $${params.push(q)})`
+      `to_tsvector('simple', coalesce(r.note,'') || ' ' || coalesce(r.ocr_text,'') || ' ' || coalesce(r.sender_name,'')) @@ plainto_tsquery('simple', $${params.push(search.trim())})`
     )
   }
 
@@ -353,10 +369,10 @@ router.get('/', async (req, res) => {
     }
   }
 
-  const where       = `WHERE ${conditions.join(' AND ')}`
-  const countParams = [...params]
+  const where = `WHERE ${conditions.join(' AND ')}`
   params.push(limitNum, offset)
 
+  // COUNT(*) OVER() piggybacks on the same query — eliminates a second round-trip
   const { rows } = await db.query(
     `SELECT r.id, r.platform, r.sender_id, r.sender_name,
             r.image_url, r.image_thumbnail, r.ocr_text, r.note,
@@ -366,7 +382,8 @@ router.get('/', async (req, res) => {
             r.document_type_id, r.extraction_status, r.classification_confidence,
             dt.code  AS document_type_code,
             dt.name  AS document_type_name,
-            r.received_at, r.created_at, r.updated_at
+            r.received_at, r.created_at, r.updated_at,
+            COUNT(*) OVER() AS _total
      FROM records r
      LEFT JOIN categories     c  ON r.category_id      = c.id
      LEFT JOIN document_types dt ON r.document_type_id = dt.id
@@ -376,10 +393,7 @@ router.get('/', async (req, res) => {
     params
   )
 
-  const { rows: [{ count }] } = await db.query(
-    `SELECT COUNT(*)::int FROM records r ${where}`,
-    countParams
-  )
+  const count = rows[0]?._total ?? 0
 
   // Batch-attach field values when requested (document-type pivot view)
   let data = rows

@@ -42,8 +42,8 @@ function fmtTime(iso) {
   const d = new Date(iso)
   return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
 }
-function initials(name = '') {
-  return name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
+function initials(name) {
+  return (name ?? '').split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
 }
 
 const DOC_TYPE_COLORS = [

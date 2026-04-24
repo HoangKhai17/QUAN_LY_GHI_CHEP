@@ -1,31 +1,116 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import RecordList from '../../components/records/RecordList'
 import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
-import StatusBadge from '../../components/records/StatusBadge'
-import PlatformBadge from '../../components/records/PlatformBadge'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
-import { useState } from 'react'
+import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats } from '../../services/record.service'
+import notify from '../../utils/notify'
 import './Records.css'
 
 const STATUS_OPTIONS = [
-  { value: '', label: 'Tất cả' },
   { value: 'new',      label: 'Mới' },
-  { value: 'reviewed', label: 'Đang rà' },
+  { value: 'reviewed', label: 'Đang rà soát' },
   { value: 'approved', label: 'Đã duyệt' },
   { value: 'flagged',  label: 'Flagged' },
 ]
 
 const PLATFORM_OPTIONS = [
-  { value: '', label: 'Tất cả kênh' },
   { value: 'telegram', label: 'Telegram' },
   { value: 'zalo',     label: 'Zalo' },
 ]
 
+const EMPTY_DRAFT = {
+  search: '', platform: [], status: [], category_id: [], document_type_id: [],
+  sender_name: [], date_from: '', date_to: '',
+}
+
+const EMPTY_FORM = {
+  note: '', category_id: '', document_type_id: '', platform: 'manual', sender_name: '',
+}
+
+// ── Multi-select dropdown ────────────────────────────────────────────────────
+function MultiSelectDropdown({ placeholder, options, value, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function onOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [])
+
+  const isAll    = value.length === 0
+  const selected = options.filter(o => value.includes(o.value))
+
+  function toggle(val) {
+    onChange(value.includes(val) ? value.filter(v => v !== val) : [...value, val])
+  }
+
+  function triggerLabel() {
+    if (isAll) return placeholder
+    if (selected.length === 1) return selected[0].label
+    return `${selected.length} đã chọn`
+  }
+
+  return (
+    <div className="msd" ref={ref}>
+      <button
+        type="button"
+        className={`msd__trigger${!isAll ? ' msd__trigger--active' : ''}${open ? ' msd__trigger--open' : ''}`}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className="msd__label">{triggerLabel()}</span>
+        {!isAll && (
+          <span className="msd__count">{selected.length}</span>
+        )}
+        <svg className="msd__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="msd__panel">
+          {/* Tất cả */}
+          <div
+            className={`msd__option${isAll ? ' msd__option--checked' : ''}`}
+            onClick={() => onChange([])}
+          >
+            <span className="msd__checkbox">
+              {isAll && <span className="msd__tick">✓</span>}
+            </span>
+            <span className="msd__option-label">{placeholder}</span>
+          </div>
+
+          <div className="msd__divider" />
+
+          {options.map(o => {
+            const checked = value.includes(o.value)
+            return (
+              <div
+                key={o.value}
+                className={`msd__option${checked ? ' msd__option--checked' : ''}`}
+                onClick={() => toggle(o.value)}
+              >
+                <span className="msd__checkbox">
+                  {checked && <span className="msd__tick">✓</span>}
+                </span>
+                <span className="msd__option-label">{o.label}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function RecordsPage() {
-  const navigate        = useNavigate()
-  const [searchParams]  = useSearchParams()
+  const navigate       = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const {
     records, total, page, filters, loading,
@@ -36,7 +121,6 @@ export default function RecordsPage() {
     20,
   )
 
-  // Sync URL ?status= param into filters on mount
   useEffect(() => {
     const s = searchParams.get('status')
     if (s) updateFilters({ status: s })
@@ -46,25 +130,145 @@ export default function RecordsPage() {
   const { record: detailRec, loading: loadingDetail, openById, close: closeDetail } = useRecordDetail()
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const [search, setSearch] = useState('')
+  const [draft, setDraft]           = useState(EMPTY_DRAFT)
+  const [categories, setCategories] = useState([])
+  const [docTypes, setDocTypes]     = useState([])
+  const [senders, setSenders]       = useState([])
 
-  function openDetail(record) {
-    openById(record.id)
-    setDetailOpen(true)
+  const [createOpen, setCreateOpen]       = useState(false)
+  const [createForm, setCreateForm]       = useState(EMPTY_FORM)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [stats, setStats]                 = useState({ total: 0, new: 0, reviewed: 0, approved: 0, flagged: 0 })
+
+  useEffect(() => {
+    getCategories().then(r => setCategories(r.data ?? []))
+    getDocumentTypes().then(r => setDocTypes(r.data ?? []))
+    getSenders().then(r => setSenders(r.data ?? []))
+  }, [])
+
+  // Re-fetch stats whenever applied filters change (ignores status filter — always shows full breakdown)
+  function refetchStats() {
+    const params = {}
+    if (filters.platform)         params.platform         = filters.platform
+    if (filters.category_id)      params.category_id      = filters.category_id
+    if (filters.document_type_id) params.document_type_id = filters.document_type_id
+    if (filters.sender_name)      params.sender_name      = filters.sender_name
+    if (filters.search)           params.search           = filters.search
+    if (filters.date_from)        params.date_from        = filters.date_from
+    if (filters.date_to)          params.date_to          = filters.date_to
+    getRecordStats(params).then(setStats).catch(() => {})
   }
 
-  function handleSearchSubmit(e) {
-    e.preventDefault()
-    updateFilters({ search: search.trim() })
+  useEffect(() => { refetchStats() }, [filters])
+
+  function openDetail(record) { openById(record.id); setDetailOpen(true) }
+
+  // Multi-value keys — stored as arrays in draft, joined as CSV when applied
+  const MULTI_KEYS = ['platform', 'status', 'category_id', 'document_type_id', 'sender_name']
+
+  function applyFilters() {
+    updateFilters({
+      search:           draft.search.trim(),
+      platform:         draft.platform.join(','),
+      status:           draft.status.join(','),
+      category_id:      draft.category_id.join(','),
+      document_type_id: draft.document_type_id.join(','),
+      sender_name:      draft.sender_name.join(','),
+      date_from:        draft.date_from,
+      date_to:          draft.date_to,
+    })
   }
 
-  function handleStatusFilter(val) {
-    updateFilters({ status: val })
+  function resetFilters() {
+    setDraft(EMPTY_DRAFT)
+    updateFilters({ search: '', platform: '', status: '', category_id: '', document_type_id: '', sender_name: '', date_from: '', date_to: '' })
   }
 
-  function handlePlatformFilter(val) {
-    updateFilters({ platform: val })
+  // Remove a single value from a multi-filter chip
+  function removeActiveFilter(key, singleValue) {
+    const arr = (filters[key] ?? '').split(',').filter(v => v && v !== singleValue)
+    setDraft(d => ({ ...d, [key]: MULTI_KEYS.includes(key) ? arr : '' }))
+    updateFilters({ [key]: arr.join(',') })
   }
+
+  function removeScalarFilter(key) {
+    setDraft(d => ({ ...d, [key]: '' }))
+    updateFilters({ [key]: '' })
+  }
+
+  // Build active-filter chips — one chip per individual value
+  const activeFilters = []
+  if (filters.search) {
+    activeFilters.push({ key: 'search', scalar: true, label: `Từ khóa: "${filters.search}"` })
+  }
+  ;(filters.platform ?? '').split(',').filter(Boolean).forEach(v => {
+    const opt = PLATFORM_OPTIONS.find(o => o.value === v)
+    activeFilters.push({ key: 'platform', value: v, label: `Kênh: ${opt?.label ?? v}` })
+  })
+  ;(filters.status ?? '').split(',').filter(Boolean).forEach(v => {
+    const opt = STATUS_OPTIONS.find(o => o.value === v)
+    activeFilters.push({ key: 'status', value: v, label: `Trạng thái: ${opt?.label ?? v}` })
+  })
+  ;(filters.category_id ?? '').split(',').filter(Boolean).forEach(v => {
+    const cat = categories.find(c => c.id === v)
+    activeFilters.push({ key: 'category_id', value: v, label: `Phân loại: ${cat?.name ?? '…'}` })
+  })
+  ;(filters.document_type_id ?? '').split(',').filter(Boolean).forEach(v => {
+    const dt = docTypes.find(d => d.id === v)
+    activeFilters.push({ key: 'document_type_id', value: v, label: `Loại TL: ${dt?.name ?? '…'}` })
+  })
+  ;(filters.sender_name ?? '').split(',').filter(Boolean).forEach(v => {
+    activeFilters.push({ key: 'sender_name', value: v, label: `Người gửi: ${v}` })
+  })
+  if (filters.date_from) activeFilters.push({ key: 'date_from', scalar: true, label: `Từ: ${filters.date_from}` })
+  if (filters.date_to)   activeFilters.push({ key: 'date_to',   scalar: true, label: `Đến: ${filters.date_to}` })
+
+  async function handleCreate() {
+    if (!createForm.note.trim() && !createForm.sender_name.trim()) {
+      notify.warning('Thiếu thông tin', 'Vui lòng điền ghi chú hoặc tên người gửi')
+      return
+    }
+    setCreateLoading(true)
+    try {
+      await createRecord({
+        note:             createForm.note.trim() || null,
+        category_id:      createForm.category_id || null,
+        document_type_id: createForm.document_type_id || null,
+        platform:         createForm.platform || 'manual',
+        sender_name:      createForm.sender_name.trim() || null,
+      })
+      notify.success('Tạo record thành công', 'Record mới đã được thêm vào hệ thống')
+      setCreateOpen(false)
+      setCreateForm(EMPTY_FORM)
+      updateFilters({})
+    } catch (err) {
+      notify.error('Tạo record thất bại', err?.response?.data?.error || 'Có lỗi xảy ra')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  // Options for multi-select filters
+  const categoryOptions  = categories.map(c => ({ value: c.id, label: c.name }))
+  const docTypeOptions   = docTypes.map(d => ({ value: d.id, label: d.name }))
+  const senderOptions    = senders.map(name => ({ value: name, label: name }))
+
+  // Stats subtitle for total card
+  const statsTotalSub = (() => {
+    if (filters.date_from || filters.date_to) {
+      const from = filters.date_from ? new Date(filters.date_from) : null
+      const to   = filters.date_to   ? new Date(filters.date_to)   : new Date()
+      if (from) {
+        const days = Math.max(1, Math.ceil((to - from) / (1000 * 60 * 60 * 24)))
+        return `Trong ${days} ngày lọc`
+      }
+      return `Đến ${filters.date_to}`
+    }
+    return 'Toàn bộ thời gian'
+  })()
+
+  const needCount     = stats.new + stats.reviewed
+  const approvedPct   = stats.total > 0 ? Math.round(stats.approved / stats.total * 100) : 0
 
   return (
     <div className="recPage">
@@ -73,64 +277,167 @@ export default function RecordsPage() {
         <div>
           <div className="recToolbar__title">Danh sách Record</div>
           <div className="recToolbar__sub">
-            {total > 0 ? `${total} record` : 'Đang tải…'}
-            {filters.status ? ` · lọc: ${STATUS_OPTIONS.find(o => o.value === filters.status)?.label}` : ''}
+            {loading ? 'Đang tải…' : `${total} record phù hợp`}
           </div>
         </div>
         <div className="recToolbar__actions">
           <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/dashboard')}>
             ← Dashboard
           </button>
+          <button
+            className="bbo-btn bbo-btn-sm bbo-btn-primary"
+            onClick={() => setCreateOpen(true)}
+          >
+            + Tạo record
+          </button>
         </div>
       </div>
 
-      {/* ── Filter bar ── */}
-      <div className="recFilters bbo-card" style={{ padding: '14px 18px' }}>
-        <div className="recFilters__row">
-          {/* Search */}
-          <form className="recSearch" onSubmit={handleSearchSubmit}>
+      {/* ── Advanced filter bar ── */}
+      <div className="recFilterCard bbo-card">
+        <div className="recFilterGrid">
+
+          {/* Kênh tiếp nhận — multi-select */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Kênh tiếp nhận</label>
+            <MultiSelectDropdown
+              placeholder="Tất cả kênh"
+              options={PLATFORM_OPTIONS}
+              value={draft.platform}
+              onChange={v => setDraft(d => ({ ...d, platform: v }))}
+            />
+          </div>
+
+          {/* Trạng thái — multi-select */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Trạng thái</label>
+            <MultiSelectDropdown
+              placeholder="Tất cả trạng thái"
+              options={STATUS_OPTIONS}
+              value={draft.status}
+              onChange={v => setDraft(d => ({ ...d, status: v }))}
+            />
+          </div>
+
+          {/* Phân loại — multi-select */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Phân loại</label>
+            <MultiSelectDropdown
+              placeholder="Tất cả phân loại"
+              options={categoryOptions}
+              value={draft.category_id}
+              onChange={v => setDraft(d => ({ ...d, category_id: v }))}
+            />
+          </div>
+
+          {/* Loại tài liệu — multi-select */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Loại tài liệu</label>
+            <MultiSelectDropdown
+              placeholder="Tất cả loại TL"
+              options={docTypeOptions}
+              value={draft.document_type_id}
+              onChange={v => setDraft(d => ({ ...d, document_type_id: v }))}
+            />
+          </div>
+
+          {/* Người gửi — multi-select */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Người gửi</label>
+            <MultiSelectDropdown
+              placeholder="Tất cả người gửi"
+              options={senderOptions}
+              value={draft.sender_name}
+              onChange={v => setDraft(d => ({ ...d, sender_name: v }))}
+            />
+          </div>
+
+          {/* Từ ngày */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Từ ngày</label>
             <input
-              className="recSearch__input"
+              className="recFilterInput"
+              type="date"
+              value={draft.date_from}
+              onChange={e => setDraft(d => ({ ...d, date_from: e.target.value }))}
+            />
+          </div>
+
+          {/* Đến ngày */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Đến ngày</label>
+            <input
+              className="recFilterInput"
+              type="date"
+              value={draft.date_to}
+              onChange={e => setDraft(d => ({ ...d, date_to: e.target.value }))}
+            />
+          </div>
+
+          {/* Từ khóa — wide */}
+          <div className="recFilterField recFilterField--wide">
+            <label className="recFilterLabel">Từ khóa</label>
+            <input
+              className="recFilterInput"
               type="text"
               placeholder="Tìm theo ghi chú, mã, người gửi…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={draft.search}
+              onChange={e => setDraft(d => ({ ...d, search: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && applyFilters()}
             />
-            <button type="submit" className="bbo-btn bbo-btn-sm bbo-btn-primary">Tìm</button>
-            {(search || filters.search) && (
-              <button
-                type="button"
-                className="bbo-btn bbo-btn-sm"
-                onClick={() => { setSearch(''); updateFilters({ search: '' }) }}
-              >✕</button>
-            )}
-          </form>
+          </div>
+        </div>
 
-          <div className="recFilters__divider" />
+        <div className="recFilterActions">
+          <button className="bbo-btn bbo-btn-sm bbo-btn-ghost" onClick={resetFilters}>
+            Đặt lại
+          </button>
+          <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={applyFilters}>
+            Tìm record
+          </button>
+        </div>
 
-          {/* Status chips */}
-          <div className="recFilters__chips">
-            {STATUS_OPTIONS.map(o => (
-              <span
-                key={o.value}
-                className={`filter-chip${filters.status === o.value ? ' filter-chip--active' : ''}`}
-                onClick={() => handleStatusFilter(o.value)}
-              >{o.label}</span>
+        {/* Active filter chips */}
+        {activeFilters.length > 0 && (
+          <div className="recActiveTags">
+            {activeFilters.map((f, i) => (
+              <span key={`${f.key}-${f.value ?? i}`} className="filter-chip">
+                {f.label}
+                <span
+                  className="filter-chip-x"
+                  onClick={() =>
+                    f.scalar
+                      ? removeScalarFilter(f.key)
+                      : removeActiveFilter(f.key, f.value)
+                  }
+                >✕</span>
+              </span>
             ))}
           </div>
+        )}
+      </div>
 
-          <div className="recFilters__divider" />
-
-          {/* Platform chips */}
-          <div className="recFilters__chips">
-            {PLATFORM_OPTIONS.map(o => (
-              <span
-                key={o.value}
-                className={`filter-chip${filters.platform === o.value ? ' filter-chip--active' : ''}`}
-                onClick={() => handlePlatformFilter(o.value)}
-              >{o.label}</span>
-            ))}
-          </div>
+      {/* ── Stats overview ── */}
+      <div className="recStats">
+        <div className="recStatCard">
+          <div className="recStatCard__label">Tổng kết quả</div>
+          <div className="recStatCard__value">{stats.total.toLocaleString()}</div>
+          <div className="recStatCard__sub">{statsTotalSub}</div>
+        </div>
+        <div className="recStatCard recStatCard--need">
+          <div className="recStatCard__label">Cần xử lý</div>
+          <div className="recStatCard__value">{needCount.toLocaleString()}</div>
+          <div className="recStatCard__sub">{stats.new} mới / {stats.reviewed} đang rà soát</div>
+        </div>
+        <div className="recStatCard recStatCard--approved">
+          <div className="recStatCard__label">Đã duyệt</div>
+          <div className="recStatCard__value">{stats.approved.toLocaleString()}</div>
+          <div className="recStatCard__sub">Tỷ lệ {approvedPct}%</div>
+        </div>
+        <div className="recStatCard recStatCard--flag">
+          <div className="recStatCard__label">Bị flag</div>
+          <div className="recStatCard__value">{stats.flagged.toLocaleString()}</div>
+          <div className="recStatCard__sub">Cần kiểm tra lại</div>
         </div>
       </div>
 
@@ -144,8 +451,8 @@ export default function RecordsPage() {
           pageSize={20}
           onPageChange={setPage}
           onRowClick={openDetail}
-          onRecordUpdate={updateRecord}
-          onRecordRemove={removeRecord}
+          onRecordUpdate={(id, patch) => { updateRecord(id, patch); refetchStats() }}
+          onRecordRemove={(id) => { removeRecord(id); refetchStats() }}
         />
       </div>
 
@@ -155,13 +462,107 @@ export default function RecordsPage() {
         record={detailRec}
         loading={loadingDetail}
         onClose={() => { setDetailOpen(false); closeDetail() }}
-        onStatusChange={(id, patch) => updateRecord(id, patch)}
+        onStatusChange={(id, patch) => { updateRecord(id, patch); refetchStats() }}
         onDelete={id => {
           removeRecord(id)
+          refetchStats()
           setDetailOpen(false)
           closeDetail()
         }}
       />
+
+      {/* ── Create record modal ── */}
+      {createOpen && (
+        <div
+          className="recModalOverlay"
+          onClick={e => e.target === e.currentTarget && setCreateOpen(false)}
+        >
+          <div className="recModal">
+            <div className="recModal__header">
+              <div className="recModal__title">Tạo Record thủ công</div>
+              <button className="recModal__close" onClick={() => setCreateOpen(false)}>✕</button>
+            </div>
+
+            <div className="recModal__body">
+              <div className="recModalField">
+                <label>Ghi chú</label>
+                <textarea
+                  className="recModalTextarea"
+                  rows={3}
+                  placeholder="Nhập nội dung ghi chú…"
+                  value={createForm.note}
+                  onChange={e => setCreateForm(f => ({ ...f, note: e.target.value }))}
+                />
+              </div>
+
+              <div className="recModalRow">
+                <div className="recModalField">
+                  <label>Kênh</label>
+                  <select
+                    className="recModalSelect"
+                    value={createForm.platform}
+                    onChange={e => setCreateForm(f => ({ ...f, platform: e.target.value }))}
+                  >
+                    <option value="manual">Thủ công</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="zalo">Zalo</option>
+                  </select>
+                </div>
+                <div className="recModalField">
+                  <label>Người gửi</label>
+                  <input
+                    className="recModalInput"
+                    type="text"
+                    placeholder="Tên người gửi…"
+                    value={createForm.sender_name}
+                    onChange={e => setCreateForm(f => ({ ...f, sender_name: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="recModalRow">
+                <div className="recModalField">
+                  <label>Phân loại</label>
+                  <select
+                    className="recModalSelect"
+                    value={createForm.category_id}
+                    onChange={e => setCreateForm(f => ({ ...f, category_id: e.target.value }))}
+                  >
+                    <option value="">-- Chọn phân loại --</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="recModalField">
+                  <label>Loại tài liệu</label>
+                  <select
+                    className="recModalSelect"
+                    value={createForm.document_type_id}
+                    onChange={e => setCreateForm(f => ({ ...f, document_type_id: e.target.value }))}
+                  >
+                    <option value="">-- Chọn loại tài liệu --</option>
+                    {docTypes.map(d => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="recModal__footer">
+              <button className="bbo-btn bbo-btn-md" onClick={() => setCreateOpen(false)}>Hủy</button>
+              <button
+                className="bbo-btn bbo-btn-md bbo-btn-primary"
+                onClick={handleCreate}
+                disabled={createLoading}
+              >
+                {createLoading ? 'Đang tạo…' : 'Tạo Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

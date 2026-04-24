@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { message, Modal } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Modal } from 'antd'
 import StatusBadge from './StatusBadge'
 import PlatformBadge from './PlatformBadge'
 import FlagDialog from './FlagDialog'
 import { updateRecordStatus, deleteRecord } from '../../services/record.service'
+import notify from '../../utils/notify'
 import './RecordList.css'
 
 // Format received_at  →  "22/04/2026\n10:31"
@@ -16,8 +17,8 @@ function fmtTime(iso) {
 }
 
 // Initials from name
-function initials(name = '') {
-  return name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
+function initials(name) {
+  return (name ?? '').split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
 }
 
 export default function RecordList({
@@ -33,10 +34,86 @@ export default function RecordList({
   // columns to hide
   hideCols = [],
 }) {
-  const [flagOpen, setFlagOpen]     = useState(false)
-  const [flagTarget, setFlagTarget] = useState(null)
-  const [flagLoading, setFlagLoading] = useState(false)
-  const [savingId, setSavingId]     = useState(null)
+  const [flagOpen, setFlagOpen]         = useState(false)
+  const [flagTarget, setFlagTarget]     = useState(null)
+  const [flagLoading, setFlagLoading]   = useState(false)
+  const [savingId, setSavingId]         = useState(null)
+  const [selected, setSelected]         = useState(new Set())
+  const [bulkLoading, setBulkLoading]   = useState(false)
+  const [flagBulkMode, setFlagBulkMode] = useState(false)
+  const checkAllRef                     = useRef(null)
+
+  // Reset selection whenever records list changes (page/filter)
+  useEffect(() => { setSelected(new Set()) }, [records])
+
+  // Sync indeterminate state on "select all" checkbox
+  useEffect(() => {
+    if (!checkAllRef.current) return
+    const some = selected.size > 0 && selected.size < records.length
+    checkAllRef.current.indeterminate = some
+  }, [selected, records])
+
+  const allSelected  = records.length > 0 && records.every(r => selected.has(r.id))
+  const someSelected = selected.size > 0
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(records.map(r => r.id)))
+  }
+
+  function toggleOne(e, id) {
+    e.stopPropagation()
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function handleBulkApprove() {
+    const ids = [...selected].filter(id => records.find(r => r.id === id)?.status !== 'approved')
+    if (!ids.length) { notify.warning('Các record đã chọn đều đã được duyệt'); return }
+    setBulkLoading(true)
+    try {
+      await Promise.all(ids.map(id => updateRecordStatus(id, 'approved')))
+      ids.forEach(id => onRecordUpdate?.(id, { status: 'approved' }))
+      setSelected(new Set())
+      notify.success(`Đã duyệt ${ids.length} record thành công`)
+    } catch {
+      notify.error('Duyệt thất bại, thử lại')
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  function openBulkFlag() {
+    setFlagBulkMode(true)
+    setFlagOpen(true)
+  }
+
+  function handleBulkDelete() {
+    const ids = [...selected]
+    Modal.confirm({
+      title: `Xóa ${ids.length} record đã chọn?`,
+      content: 'Thao tác này không thể hoàn tác.',
+      okText: `Xóa ${ids.length} record`,
+      okType: 'danger',
+      cancelText: 'Hủy',
+      centered: true,
+      async onOk() {
+        setBulkLoading(true)
+        try {
+          await Promise.all(ids.map(id => deleteRecord(id)))
+          ids.forEach(id => onRecordRemove?.(id))
+          setSelected(new Set())
+          notify.success(`Đã xóa ${ids.length} record`)
+        } catch {
+          notify.error('Xóa thất bại, thử lại')
+        } finally {
+          setBulkLoading(false)
+        }
+      },
+    })
+  }
 
   async function handleApprove(e, record) {
     e.stopPropagation()
@@ -45,9 +122,9 @@ export default function RecordList({
     try {
       await updateRecordStatus(record.id, 'approved')
       onRecordUpdate?.(record.id, { status: 'approved' })
-      message.success('Đã duyệt thành công')
+      notify.success('Duyệt thành công', `Record ${record.code ?? record.id?.slice(-6).toUpperCase()} đã được duyệt`)
     } catch {
-      message.error('Duyệt thất bại, thử lại')
+      notify.error('Duyệt thất bại', 'Vui lòng thử lại')
     } finally {
       setSavingId(null)
     }
@@ -62,13 +139,22 @@ export default function RecordList({
   async function handleFlagConfirm(reason) {
     setFlagLoading(true)
     try {
-      await updateRecordStatus(flagTarget.id, 'flagged', reason)
-      onRecordUpdate?.(flagTarget.id, { status: 'flagged', flag_reason: reason })
-      message.success('Đã gắn cờ')
+      if (flagBulkMode) {
+        const ids = [...selected]
+        await Promise.all(ids.map(id => updateRecordStatus(id, 'flagged', reason)))
+        ids.forEach(id => onRecordUpdate?.(id, { status: 'flagged', flag_reason: reason }))
+        setSelected(new Set())
+        notify.success(`Đã gắn cờ ${ids.length} record`)
+      } else {
+        await updateRecordStatus(flagTarget.id, 'flagged', reason)
+        onRecordUpdate?.(flagTarget.id, { status: 'flagged', flag_reason: reason })
+        notify.success('Đã gắn cờ record', `Lý do: ${reason}`)
+      }
       setFlagOpen(false)
       setFlagTarget(null)
+      setFlagBulkMode(false)
     } catch {
-      message.error('Gắn cờ thất bại, thử lại')
+      notify.error('Gắn cờ thất bại', 'Vui lòng thử lại')
     } finally {
       setFlagLoading(false)
     }
@@ -87,9 +173,9 @@ export default function RecordList({
         try {
           await deleteRecord(record.id)
           onRecordRemove?.(record.id)
-          message.success('Đã xóa')
+          notify.success('Đã xóa record')
         } catch {
-          message.error('Xóa thất bại')
+          notify.error('Xóa thất bại', 'Vui lòng thử lại')
         }
       },
     })
@@ -101,28 +187,64 @@ export default function RecordList({
 
   return (
     <div className="recList">
+      {/* ── Bulk action bar ── */}
+      {someSelected && (
+        <div className="recListBulkBar">
+          <span className="recListBulkBar__count">
+            Đã chọn <strong>{selected.size}</strong> record
+          </span>
+          <div className="recListBulkBar__actions">
+            <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={handleBulkApprove} disabled={bulkLoading}>
+              ✓ Duyệt ({selected.size})
+            </button>
+            <button className="bbo-btn bbo-btn-sm" onClick={openBulkFlag} disabled={bulkLoading}>
+              🚩 Gắn cờ ({selected.size})
+            </button>
+            <button className="bbo-btn bbo-btn-sm bbo-btn-danger" onClick={handleBulkDelete} disabled={bulkLoading}>
+              🗑 Xóa ({selected.size})
+            </button>
+            <button className="bbo-btn bbo-btn-sm bbo-btn-ghost" onClick={() => setSelected(new Set())} disabled={bulkLoading}>
+              Bỏ chọn
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Table ── */}
       <div className="rec-table-wrap">
         {/* Head */}
         <div className="rec-table-head recListGrid">
-          {show('thumb')    && <div />}
+          {show('select') && (
+            <div className="recListCheckboxCell" onClick={e => e.stopPropagation()}>
+              <input
+                ref={checkAllRef}
+                type="checkbox"
+                className="recListCheckbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                title="Chọn tất cả"
+              />
+            </div>
+          )}
           {show('code')     && <div>Mã</div>}
           {show('note')     && <div>Ghi chú / Thông tin</div>}
           {show('sender')   && <div>Người gửi</div>}
+          {show('category') && <div>Phân loại</div>}
           {show('doctype')  && <div>Loại tài liệu</div>}
           {show('platform') && <div>Kênh</div>}
           {show('status')   && <div>Trạng thái</div>}
           {show('time')     && <div>Thời gian</div>}
-          <div />
+          <div>Action</div>
         </div>
 
         {/* Skeleton rows */}
         {loading && Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="rec-table-row recListGrid recListSkeleton">
-            {show('thumb')    && <div className="skeleton" style={{ width: 42, height: 42, borderRadius: 6 }} />}
+            {show('select')   && <div className="skeleton" style={{ width: 16, height: 16, borderRadius: 3, margin: 'auto' }} />}
             {show('code')     && <div className="skeleton" style={{ width: 72, height: 14 }} />}
             {show('note')     && <div className="skeleton" style={{ width: '80%', height: 14 }} />}
             {show('sender')   && <div className="skeleton" style={{ width: 90, height: 14 }} />}
+            {show('category') && <div className="skeleton" style={{ width: 72, height: 22, borderRadius: 6 }} />}
             {show('doctype')  && <div className="skeleton" style={{ width: 80, height: 22, borderRadius: 6 }} />}
             {show('platform') && <div className="skeleton" style={{ width: 70, height: 22, borderRadius: 999 }} />}
             {show('status')   && <div className="skeleton" style={{ width: 70, height: 22, borderRadius: 999 }} />}
@@ -144,14 +266,17 @@ export default function RecordList({
         {!loading && records.map(r => (
           <div
             key={r.id}
-            className="rec-table-row recListGrid"
+            className={`rec-table-row recListGrid${selected.has(r.id) ? ' recListRow--selected' : ''}`}
             onClick={() => onRowClick?.(r)}
           >
-            {show('thumb') && (
-              <div className="img-ph rec-table__thumb">
-                {r.thumbnail_url
-                  ? <img src={r.thumbnail_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }} />
-                  : 'IMG'}
+            {show('select') && (
+              <div className="recListCheckboxCell" onClick={e => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  className="recListCheckbox"
+                  checked={selected.has(r.id)}
+                  onChange={e => toggleOne(e, r.id)}
+                />
               </div>
             )}
             {show('code') && (
@@ -178,6 +303,16 @@ export default function RecordList({
                 <span className="rec-table__sender-name">{r.sender_name ?? '—'}</span>
               </div>
             )}
+            {show('category') && (
+              <div className="recListCategoryCell">
+                {r.category_name
+                  ? <span
+                      className="recListCategoryPill"
+                      style={{ color: r.category_color || '#666', borderColor: r.category_color || '#ccc' }}
+                    >{r.category_name}</span>
+                  : <span style={{ color: 'var(--ink3)', fontSize: 12 }}>—</span>}
+              </div>
+            )}
             {show('doctype') && (
               <div className="recListDocType">
                 {r.document_type_name
@@ -196,8 +331,8 @@ export default function RecordList({
                 {fmtTime(r.received_at)}
               </div>
             )}
-            {/* Row actions */}
-            <div className="recListActions" onClick={e => e.stopPropagation()}>
+            {/* Row actions — always visible */}
+            <div className="recListActions recListActions--visible" onClick={e => e.stopPropagation()}>
               {r.status !== 'approved' && (
                 <button
                   className="recListActionBtn recListActionBtn--approve"
@@ -259,7 +394,7 @@ export default function RecordList({
       <FlagDialog
         open={flagOpen}
         loading={flagLoading}
-        onCancel={() => { setFlagOpen(false); setFlagTarget(null) }}
+        onCancel={() => { setFlagOpen(false); setFlagTarget(null); setFlagBulkMode(false) }}
         onConfirm={handleFlagConfirm}
       />
     </div>

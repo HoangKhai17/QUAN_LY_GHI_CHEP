@@ -65,11 +65,122 @@ function buildFvCondition(fieldKey, op, rawVal, params) {
   )`
 }
 
+// ── POST /api/records ─────────────────────────────────────────────────────────
+router.post('/', async (req, res) => {
+  const { note, category_id, document_type_id, platform, sender_name } = req.body || {}
+
+  if (!note?.trim() && !sender_name?.trim()) {
+    return res.status(400).json({ error: 'Cần có ít nhất ghi chú hoặc tên người gửi' })
+  }
+
+  const VALID_PLATFORMS = ['telegram', 'zalo', 'manual']
+  const plat = platform || 'manual'
+  if (!VALID_PLATFORMS.includes(plat)) {
+    return res.status(400).json({ error: `platform phải là một trong: ${VALID_PLATFORMS.join(', ')}` })
+  }
+
+  const { rows: [record] } = await db.query(
+    `INSERT INTO records
+       (note, category_id, document_type_id, platform, sender_name,
+        sender_id, status, ocr_status, extraction_status, received_at, created_at, updated_at)
+     VALUES
+       ($1, $2, $3, $4, $5,
+        $6, 'new', 'pending', 'done', NOW(), NOW(), NOW())
+     RETURNING id, note, category_id, document_type_id, platform, sender_name, status, received_at`,
+    [
+      note?.trim() || null,
+      category_id || null,
+      document_type_id || null,
+      plat,
+      sender_name?.trim() || null,
+      req.user.sub,
+    ]
+  )
+
+  logAudit({
+    userId: req.user.sub, action: 'create', resource: 'record', resourceId: record.id,
+    newData: { note: record.note, platform: plat, sender_name: record.sender_name },
+    req,
+  })
+
+  res.status(201).json(record)
+})
+
+// ── GET /api/records/senders — distinct sender names for filter dropdown ──────
+router.get('/senders', async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT DISTINCT sender_name
+     FROM records
+     WHERE sender_name IS NOT NULL AND sender_name != '' AND status != 'deleted'
+     ORDER BY sender_name
+     LIMIT 200`
+  )
+  res.json({ data: rows.map(r => r.sender_name) })
+})
+
+// ── GET /api/records/stats — status breakdown for current filters ──────────────
+router.get('/stats', async (req, res) => {
+  const {
+    platform, category_id, document_type_id, sender_name,
+    search, date_from, date_to,
+  } = req.query
+
+  // Same filter logic as GET / but WITHOUT status filter so we always get full breakdown
+  const conditions = [`r.status != 'deleted'`]
+  const params     = []
+
+  const platforms = platform
+    ? platform.split(',').map(p => p.trim()).filter(Boolean) : []
+  if (platforms.length > 0)
+    conditions.push(`r.platform = ANY($${params.push(platforms)}::text[])`)
+
+  const categoryIds = category_id
+    ? category_id.split(',').map(c => c.trim()).filter(Boolean) : []
+  if (categoryIds.length > 0)
+    conditions.push(`r.category_id = ANY($${params.push(categoryIds)}::uuid[])`)
+
+  const documentTypeIds = document_type_id
+    ? document_type_id.split(',').map(d => d.trim()).filter(Boolean) : []
+  if (documentTypeIds.length > 0)
+    conditions.push(`r.document_type_id = ANY($${params.push(documentTypeIds)}::uuid[])`)
+
+  const senderNames = sender_name
+    ? sender_name.split(',').map(s => s.trim()).filter(Boolean) : []
+  if (senderNames.length > 0)
+    conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
+
+  if (search?.trim()) {
+    const q = `%${search.trim()}%`
+    conditions.push(
+      `(r.note ILIKE $${params.push(q)} OR r.sender_name ILIKE $${params.push(q)} OR r.ocr_text ILIKE $${params.push(q)})`
+    )
+  }
+  if (date_from) conditions.push(`r.received_at >= $${params.push(date_from)}`)
+  if (date_to)   conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+
+  const { rows } = await db.query(
+    `SELECT r.status::text AS status, COUNT(*)::int AS count
+     FROM records r
+     WHERE ${conditions.join(' AND ')}
+     GROUP BY r.status::text`,
+    params
+  )
+
+  const counts = { new: 0, reviewed: 0, approved: 0, flagged: 0 }
+  for (const row of rows) {
+    if (row.status in counts) counts[row.status] = row.count
+  }
+  const total = counts.new + counts.reviewed + counts.approved + counts.flagged
+
+  res.json({ ...counts, total })
+})
+
 // ── GET /api/records ──────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   const {
     status, platform, sender_id, category_id,
     document_type_id, extraction_status,
+    search, sender_name,
     date_from, date_to,
     include_field_values,
     page = 1, limit = 20,
@@ -79,23 +190,61 @@ router.get('/', async (req, res) => {
   const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
   const offset   = (pageNum - 1) * limitNum
 
-  if (status && !VALID_STATUSES.includes(status)) {
-    return res.status(400).json({ error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` })
-  }
-
   const conditions = []
   const params     = []
 
-  if (status) {
-    conditions.push(`r.status = $${params.push(status)}`)
+  // status — cast enum to text to avoid type mismatch with ANY()
+  const statuses = status
+    ? status.split(',').map(s => s.trim()).filter(s => VALID_STATUSES.includes(s))
+    : []
+  if (statuses.length > 0) {
+    conditions.push(`r.status::text = ANY($${params.push(statuses)}::text[])`)
   } else {
     conditions.push(`r.status != 'deleted'`)
   }
 
-  if (platform)          conditions.push(`r.platform = $${params.push(platform)}`)
-  if (sender_id)         conditions.push(`r.sender_id = $${params.push(sender_id)}::uuid`)
-  if (category_id)       conditions.push(`r.category_id = $${params.push(category_id)}::uuid`)
-  if (document_type_id)  conditions.push(`r.document_type_id = $${params.push(document_type_id)}::uuid`)
+  // platform — text[], multi-value
+  const platforms = platform
+    ? platform.split(',').map(p => p.trim()).filter(Boolean)
+    : []
+  if (platforms.length > 0) {
+    conditions.push(`r.platform = ANY($${params.push(platforms)}::text[])`)
+  }
+
+  // category_id — uuid[], multi-value
+  const categoryIds = category_id
+    ? category_id.split(',').map(c => c.trim()).filter(Boolean)
+    : []
+  if (categoryIds.length > 0) {
+    conditions.push(`r.category_id = ANY($${params.push(categoryIds)}::uuid[])`)
+  }
+
+  // sender_name — multi-value exact match
+  const senderNames = sender_name
+    ? sender_name.split(',').map(s => s.trim()).filter(Boolean)
+    : []
+  if (senderNames.length > 0) {
+    conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
+  }
+
+  // search — full-text ILIKE across note, sender_name, ocr_text
+  if (search?.trim()) {
+    const q = `%${search.trim()}%`
+    conditions.push(
+      `(r.note ILIKE $${params.push(q)} OR r.sender_name ILIKE $${params.push(q)} OR r.ocr_text ILIKE $${params.push(q)})`
+    )
+  }
+
+  if (sender_id) conditions.push(`r.sender_id = $${params.push(sender_id)}::uuid`)
+
+  // document_type_id — uuid[], multi-value
+  const documentTypeIds = document_type_id
+    ? document_type_id.split(',').map(d => d.trim()).filter(Boolean)
+    : []
+  if (documentTypeIds.length > 0) {
+    conditions.push(`r.document_type_id = ANY($${params.push(documentTypeIds)}::uuid[])`)
+  }
+
   if (extraction_status) conditions.push(`r.extraction_status = $${params.push(extraction_status)}`)
   if (date_from)         conditions.push(`r.received_at >= $${params.push(date_from)}`)
   if (date_to)           conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
@@ -250,6 +399,18 @@ router.patch('/:id/status', requireRole('admin', 'manager'), async (req, res) =>
     req,
   })
 
+  // Emit record_updated so all clients can sync their UI + pending count
+  setImmediate(async () => {
+    const io = req.app.get('io')
+    if (!io) return
+    try {
+      const { rows: [{ pending }] } = await db.query(
+        `SELECT COUNT(*)::int AS pending FROM records WHERE status = 'new'`
+      )
+      io.emit('record_updated', { record_id: req.params.id, new_status: status, pending })
+    } catch { /* ignore — non-critical */ }
+  })
+
   res.json({ success: true })
 })
 
@@ -359,6 +520,11 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
   if (!rowCount) return res.status(404).json({ error: 'Record not found' })
 
   logAudit({ userId: req.user.sub, action: 'delete', resource: 'record', resourceId: req.params.id, req })
+
+  // Notify all clients
+  const io = req.app.get('io')
+  if (io) io.emit('record_deleted', { record_id: req.params.id })
+
   res.json({ success: true })
 })
 

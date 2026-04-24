@@ -14,8 +14,8 @@ function fmtDatetime(iso) {
   })
 }
 
-function initials(name = '') {
-  return name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '??'
+function initials(name) {
+  return (name ?? '').split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '??'
 }
 
 function ConfidenceBadge({ value }) {

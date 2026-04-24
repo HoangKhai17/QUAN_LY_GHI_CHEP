@@ -60,21 +60,21 @@
   flex-wrap: wrap;
   gap: 10px;
 }
-.adm-section-title { font-size: 15px; font-weight: 700; color: var(--ink); }
-.adm-section-sub   { font-size: 12px; color: var(--ink3); margin-top: 2px; }
+.adm-section-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.adm-section-sub   { font-size: 12.5px; color: var(--ink3); margin-top: 2px; }
 
 /* ── Table rows ───────────────────────────────────────────────────────────── */
 .adm-table-head,
 .adm-table-row {
   display: grid;
   gap: 12px;
-  padding: 0 18px;
+  padding: 0 22px;
   align-items: center;
 }
 .adm-table-head {
-  height: 38px;
+  height: 44px;
   background: linear-gradient(180deg, #fafbfd 0%, #f4f7fa 100%);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   color: var(--ink3);
   text-transform: uppercase;
@@ -82,7 +82,7 @@
   border-bottom: 1px solid var(--line2);
 }
 .adm-table-row {
-  min-height: 62px;
+  min-height: 70px;
   border-bottom: 1px solid var(--line2);
   transition: background .12s;
 }
@@ -97,9 +97,9 @@
 .adm-table-cats    { grid-template-columns: 1fr 1fr 120px 180px; }
 
 /* ── Cell text helpers ─────────────────────────────────────────────────────── */
-.adm-cell-primary { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.adm-cell-sub     { font-size: 11.5px; color: var(--ink3); margin-top: 1px; }
-.adm-cell-mono    { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.adm-cell-primary { font-size: 14px; font-weight: 600; color: var(--ink); }
+.adm-cell-sub     { font-size: 12px; color: var(--ink3); margin-top: 1px; }
+.adm-cell-mono    { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 
 /* ── Row actions ──────────────────────────────────────────────────────────── */
 .adm-row-actions {
@@ -152,15 +152,15 @@
   flex: 1 1 190px;
 }
 .adm-form-field label {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink3);
 }
 .adm-input {
   border: 1.5px solid var(--line2);
   border-radius: 8px;
-  padding: 7px 10px;
-  font-size: 13px;
+  padding: 10px 12px;
+  font-size: 13.5px;
   font-family: 'Montserrat', sans-serif;
   color: var(--ink);
   outline: none;
@@ -170,12 +170,12 @@
   background: #fff;
 }
 .adm-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,122,67,.08); }
-.adm-input-sm  { padding: 5px 9px; font-size: 12px; }
+.adm-input-sm  { padding: 7px 10px; font-size: 12.5px; }
 .adm-select {
   border: 1.5px solid var(--line2);
   border-radius: 8px;
-  padding: 7px 10px;
-  font-size: 13px;
+  padding: 10px 12px;
+  font-size: 13.5px;
   font-family: 'Montserrat', sans-serif;
   color: var(--ink);
   background: #fff;
@@ -183,7 +183,7 @@
   transition: border-color .15s;
 }
 .adm-select:focus { border-color: var(--primary); }
-.adm-select-sm { padding: 5px 9px; font-size: 12px; }
+.adm-select-sm { padding: 7px 10px; font-size: 12.5px; }
 .adm-form-actions { display: flex; gap: 8px; }
 .adm-form-error {
   background: #fff1ef;
@@ -267,23 +267,23 @@
 }
 .adm-fields-table th {
   text-align: left;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: #e4eaf0;
   color: var(--ink3);
-  font-size: 10.5px;
+  font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: .4px;
   font-weight: 700;
 }
 .adm-fields-table td {
-  padding: 9px 10px;
+  padding: 10px 12px;
   border-bottom: 1px solid #dde3ea;
   vertical-align: middle;
 }
 .adm-fields-table tbody tr:last-child td { border-bottom: none; }
 .adm-code {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink);
 }
 .adm-dtype-badge {
@@ -291,8 +291,8 @@
   background: #dbeafe;
   color: #1a4fa0;
   border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 10.5px;
+  padding: 3px 8px;
+  font-size: 11.5px;
   font-weight: 700;
   font-family: 'JetBrains Mono', monospace;
 }

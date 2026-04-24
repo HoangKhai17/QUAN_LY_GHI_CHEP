@@ -38,7 +38,16 @@ export default function useRecordsQuery(initialFilters = {}, limit = 10) {
   }
 
   function updateRecord(id, patch) {
-    setRecords(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+    const statusMismatch = patch.status
+      && filters.status?.length > 0
+      && !filters.status.includes(patch.status)
+
+    setRecords(prev => {
+      const updated = prev.map(r => r.id === id ? { ...r, ...patch } : r)
+      return statusMismatch ? updated.filter(r => r.id !== id) : updated
+    })
+
+    if (statusMismatch) setTotal(t => Math.max(0, t - 1))
   }
 
   function removeRecord(id) {

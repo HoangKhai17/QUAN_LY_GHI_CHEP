@@ -34,8 +34,8 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function initials(name = '') {
-  return name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
+function initials(name) {
+  return (name ?? '').split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
 }
 
 // Op labels per data type

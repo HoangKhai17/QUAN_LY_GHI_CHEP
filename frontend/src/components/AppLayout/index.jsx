@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import useAuthStore from '../../store/auth.store'
+import useNotificationStore, { relativeTime } from '../../store/notification.store'
+import { connectSocket, disconnectSocket } from '../../services/socket'
+import notify from '../../utils/notify'
+import api from '../../services/api'
 import logoImg from '../../assets/logo.png'
 import './AppLayout.css'
 
@@ -72,10 +76,13 @@ const PAGE_TITLES = {
 export default function AppLayout() {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { user, logout } = useAuthStore()
+  const { user, logout, accessToken } = useAuthStore()
+  const { pendingCount, events, setPendingCount, pushNewRecord, syncPending } = useNotificationStore()
 
   const [menuOpen, setMenuOpen] = useState(false)
+  const [bellOpen, setBellOpen] = useState(false)
   const pillRef = useRef(null)
+  const bellRef = useRef(null)
 
   const title = PAGE_TITLES[location.pathname] ?? 'BBO Records'
 
@@ -85,9 +92,48 @@ export default function AppLayout() {
 
   async function handleLogout() {
     setMenuOpen(false)
+    disconnectSocket()
     await logout()
     navigate('/login', { replace: true })
   }
+
+  // Socket connection lifecycle
+  useEffect(() => {
+    const token = accessToken || localStorage.getItem('access_token')
+    if (!token) return
+
+    api.get('/api/notifications/summary')
+      .then(res => setPendingCount(res.data.pending))
+      .catch(() => {})
+
+    const socket = connectSocket(token)
+
+    socket.on('new_record', (payload) => {
+      pushNewRecord(payload)
+      notify.info('Record mới', `${payload.record?.sender_name || 'Người dùng'} vừa gửi record mới`)
+    })
+
+    socket.on('record_updated', (payload) => {
+      syncPending(payload.pending)
+    })
+
+    return () => {
+      socket.off('new_record')
+      socket.off('record_updated')
+    }
+  }, [accessToken])
+
+  // Close bell on outside click
+  useEffect(() => {
+    if (!bellOpen) return
+    function onClickOutside(e) {
+      if (bellRef.current && !bellRef.current.contains(e.target)) {
+        setBellOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [bellOpen])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -186,10 +232,54 @@ export default function AppLayout() {
               />
             </div>
             {/* Bell */}
-            <div className="bellWrap">
-              <div className="bell" title="Thông báo">
+            <div className="bellWrap" ref={bellRef}>
+              <div
+                className={`bell${bellOpen ? ' bell--open' : ''}`}
+                title="Thông báo"
+                onClick={() => setBellOpen(v => !v)}
+              >
                 <IconBell />
+                {pendingCount > 0 && (
+                  <span className="bellBadge">{pendingCount > 99 ? '99+' : pendingCount}</span>
+                )}
               </div>
+
+              {bellOpen && (
+                <div className="bellDropdown" onClick={e => e.stopPropagation()}>
+                  <div className="bellDropdown__header">
+                    <span>Thông báo</span>
+                    {pendingCount > 0 && (
+                      <span className="bellDropdown__pending">{pendingCount} cần xử lý</span>
+                    )}
+                  </div>
+                  <div className="bellDropdown__list">
+                    {events.length === 0 ? (
+                      <div className="bellDropdown__empty">Không có thông báo mới</div>
+                    ) : (
+                      events.map(ev => (
+                        <div key={ev.id} className="bellDropdown__item"
+                          onClick={() => { setBellOpen(false); navigate('/app/records') }}>
+                          <div className="bellDropdown__itemIcon">📄</div>
+                          <div className="bellDropdown__itemBody">
+                            <div className="bellDropdown__itemTitle">
+                              Record mới từ <strong>{ev.record?.sender_name || '—'}</strong>
+                            </div>
+                            <div className="bellDropdown__itemMeta">
+                              {ev.record?.platform && <span className="bellDropdown__itemPlatform">{ev.record.platform}</span>}
+                              <span className="bellDropdown__itemTime">{relativeTime(ev.time)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="bellDropdown__footer">
+                    <button onClick={() => { setBellOpen(false); navigate('/app/records') }}>
+                      Xem tất cả record →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* User pill + dropdown */}

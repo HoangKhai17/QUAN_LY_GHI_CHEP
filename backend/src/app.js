@@ -5,6 +5,7 @@ const cors = require('cors')
 const helmet = require('helmet')
 const morgan = require('morgan')
 const rateLimit = require('express-rate-limit')
+const jwt = require('jsonwebtoken')
 const { Server: SocketIO } = require('socket.io')
 const swaggerUi = require('swagger-ui-express')
 const swaggerSpec = require('./config/swagger')
@@ -20,9 +21,29 @@ const io = new SocketIO(server, {
   cors: { origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true },
 })
 app.set('io', io)
+
+// Socket auth middleware — verify JWT on handshake
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token
+  if (!token) return next(new Error('Unauthorized'))
+  try {
+    const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET)
+    socket.userId   = payload.sub
+    socket.userRole = payload.role || 'staff'
+    next()
+  } catch {
+    next(new Error('Invalid token'))
+  }
+})
+
 io.on('connection', (socket) => {
-  logger.info('socket.connected', { id: socket.id })
-  socket.on('disconnect', () => logger.info('socket.disconnected', { id: socket.id }))
+  // Join personal + role rooms for targeted emits
+  socket.join(`user:${socket.userId}`)
+  socket.join(`role:${socket.userRole}`)
+  logger.info('socket.connected', { id: socket.id, userId: socket.userId, role: socket.userRole })
+  socket.on('disconnect', () =>
+    logger.info('socket.disconnected', { id: socket.id, userId: socket.userId })
+  )
 })
 
 // Trust proxy headers từ ngrok/nginx (cần để rate-limit nhận đúng IP)

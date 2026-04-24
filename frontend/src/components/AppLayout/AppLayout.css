@@ -81,7 +81,7 @@
 .navSection  { margin-bottom: 6px; }
 .navSectionLabel {
   padding: 10px 20px 5px;
-  font-size: 9.5px; font-weight: 700;
+  font-size: 10.5px; font-weight: 700;
   letter-spacing: 1.2px; text-transform: uppercase;
   color: rgba(255,255,255,.28);
 }
@@ -158,12 +158,12 @@
 }
 .sidebarUserInfo { flex: 1; min-width: 0; }
 .sidebarUserName {
-  font-size: 12.5px; font-weight: 600;
+  font-size: 13.5px; font-weight: 600;
   color: rgba(255,255,255,.9);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sidebarUserMeta {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: rgba(255,255,255,.38);
   margin-top: 1px;
 }
@@ -212,7 +212,7 @@
   font-size: 13px; color: var(--line);
 }
 .breadcrumbCurrent {
-  font-size: 13.5px; font-weight: 700;
+  font-size: 14.5px; font-weight: 700;
   color: var(--ink);
   letter-spacing: -.1px;
 }
@@ -270,15 +270,111 @@
   transition: border-color .15s, color .15s, box-shadow .15s;
   box-shadow: var(--shadow-xs);
 }
-.bell:hover { border-color: var(--primary); color: var(--primary); box-shadow: var(--shadow-sm); }
-.bellDot {
+.bell:hover,
+.bell--open { border-color: var(--primary); color: var(--primary); box-shadow: var(--shadow-sm); }
+.bell--open { background: var(--primary-tint); }
+
+.bellBadge {
   position: absolute;
-  top: 5px; right: 5px;
-  width: 8px; height: 8px;
-  border-radius: 50%;
+  top: -5px; right: -5px;
+  min-width: 18px; height: 18px;
+  border-radius: 9px;
   background: var(--danger);
+  color: #fff;
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
   border: 2px solid #fff;
+  line-height: 1;
+  pointer-events: none;
 }
+
+/* Bell dropdown */
+.bellDropdown {
+  position: absolute;
+  top: calc(100% + 8px); right: 0;
+  width: 320px;
+  background: #fff;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-md);
+  z-index: 200;
+  overflow: hidden;
+  animation: dropIn .12s ease;
+}
+.bellDropdown__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 14px; font-weight: 700; color: var(--ink);
+}
+.bellDropdown__pending {
+  font-size: 11.5px; font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-tint);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.bellDropdown__list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.bellDropdown__empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 13px; color: var(--ink-3);
+}
+.bellDropdown__item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: background .1s;
+  border-bottom: 1px solid var(--line-2);
+}
+.bellDropdown__item:last-child { border-bottom: none; }
+.bellDropdown__item:hover { background: var(--canvas); }
+.bellDropdown__itemIcon {
+  width: 32px; height: 32px; flex-shrink: 0;
+  background: var(--primary-tint);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.bellDropdown__itemBody { flex: 1; min-width: 0; }
+.bellDropdown__itemTitle {
+  font-size: 13px; color: var(--ink);
+  line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bellDropdown__itemMeta {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 3px;
+}
+.bellDropdown__itemPlatform {
+  font-size: 10.5px; font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-tint);
+  padding: 1px 6px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: .3px;
+}
+.bellDropdown__itemTime {
+  font-size: 11.5px; color: var(--ink-3);
+}
+.bellDropdown__footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--line-2);
+  text-align: center;
+}
+.bellDropdown__footer button {
+  background: none; border: none;
+  font-size: 13px; font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  font-family: 'Montserrat', sans-serif;
+  padding: 4px 8px; border-radius: 6px;
+  transition: background .1s;
+}
+.bellDropdown__footer button:hover { background: var(--primary-tint); }
 
 /* User pill */
 .userPill {
@@ -304,9 +400,9 @@
   flex-shrink: 0;
 }
 .userInfo { line-height: 1.25; }
-.userName { font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.userName { font-size: 13.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .userRole {
-  font-size: 10.5px; font-weight: 500;
+  font-size: 11.5px; font-weight: 500;
   color: var(--primary);
   text-transform: uppercase; letter-spacing: .4px;
 }

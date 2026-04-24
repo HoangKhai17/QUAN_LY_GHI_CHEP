@@ -166,9 +166,19 @@ async function process(normalizedMsg, connector, io) {
 
     // ── 7. Emit WebSocket ─────────────────────────────────────────────────────
     if (io) {
-      io.emit('new_record', {
-        record: { id: recordId, sender_name, platform, received_at, status: 'new' },
-      })
+      try {
+        const { rows: [{ pending }] } = await db.query(
+          `SELECT COUNT(*)::int AS pending FROM records WHERE status = 'new'`
+        )
+        io.emit('new_record', {
+          record: { id: recordId, sender_name, platform, received_at, status: 'new' },
+          pending,
+        })
+      } catch {
+        io.emit('new_record', {
+          record: { id: recordId, sender_name, platform, received_at, status: 'new' },
+        })
+      }
     }
 
   } catch (err) {

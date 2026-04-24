@@ -4,7 +4,7 @@ import RecordList from '../../components/records/RecordList'
 import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
-import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats } from '../../services/record.service'
+import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats, getUsers } from '../../services/record.service'
 import notify from '../../utils/notify'
 import './Records.css'
 
@@ -26,7 +26,8 @@ const EMPTY_DRAFT = {
 }
 
 const EMPTY_FORM = {
-  note: '', category_id: '', document_type_id: '', platform: 'manual', sender_name: '',
+  note: '', category_id: '', document_type_id: '', platform: 'manual',
+  sender_id: '', sender_name: '',
 }
 
 // ── Multi-select dropdown ────────────────────────────────────────────────────
@@ -134,16 +135,22 @@ export default function RecordsPage() {
   const [categories, setCategories] = useState([])
   const [docTypes, setDocTypes]     = useState([])
   const [senders, setSenders]       = useState([])
+  const [systemUsers, setSystemUsers] = useState([])
 
   const [createOpen, setCreateOpen]       = useState(false)
   const [createForm, setCreateForm]       = useState(EMPTY_FORM)
   const [createLoading, setCreateLoading] = useState(false)
+  const [createFiles, setCreateFiles]     = useState([])
+  const [createErrors, setCreateErrors]   = useState({})
+  const [isDragging, setIsDragging]       = useState(false)
+  const fileInputRef                      = useRef(null)
   const [stats, setStats]                 = useState({ total: 0, new: 0, reviewed: 0, approved: 0, flagged: 0 })
 
   useEffect(() => {
     getCategories().then(r => setCategories(r.data ?? []))
     getDocumentTypes().then(r => setDocTypes(r.data ?? []))
     getSenders().then(r => setSenders(r.data ?? []))
+    getUsers().then(r => setSystemUsers(r.data ?? []))
   }, [])
 
   // Re-fetch stats whenever applied filters change (ignores status filter — always shows full breakdown)
@@ -223,11 +230,47 @@ export default function RecordsPage() {
   if (filters.date_from) activeFilters.push({ key: 'date_from', scalar: true, label: `Từ: ${filters.date_from}` })
   if (filters.date_to)   activeFilters.push({ key: 'date_to',   scalar: true, label: `Đến: ${filters.date_to}` })
 
+  function closeCreateModal() {
+    setCreateOpen(false)
+    setCreateForm(EMPTY_FORM)
+    setCreateFiles([])
+    setCreateErrors({})
+    setIsDragging(false)
+  }
+
+  function addFiles(newFiles) {
+    setCreateFiles(prev => [...prev, ...newFiles].slice(0, 3))
+  }
+
+  function removeFile(index) {
+    setCreateFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function handleFileSelect(e) {
+    addFiles(Array.from(e.target.files))
+    e.target.value = ''
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setIsDragging(false)
+    const dropped = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
+    addFiles(dropped)
+  }
+
   async function handleCreate() {
-    if (!createForm.note.trim() && !createForm.sender_name.trim()) {
-      notify.warning('Thiếu thông tin', 'Vui lòng điền ghi chú hoặc tên người gửi')
+    const errors = {}
+    if (!createForm.sender_id) errors.sender_name = true
+    if (!createForm.note.trim() && createFiles.length === 0) errors.content = true
+    if (Object.keys(errors).length > 0) {
+      setCreateErrors(errors)
+      notify.warning(
+        'Thiếu thông tin',
+        errors.sender_name ? 'Vui lòng chọn người gửi' : 'Vui lòng nhập ghi chú hoặc đính kèm ảnh'
+      )
       return
     }
+    setCreateErrors({})
     setCreateLoading(true)
     try {
       await createRecord({
@@ -235,12 +278,13 @@ export default function RecordsPage() {
         category_id:      createForm.category_id || null,
         document_type_id: createForm.document_type_id || null,
         platform:         createForm.platform || 'manual',
-        sender_name:      createForm.sender_name.trim() || null,
-      })
+        sender_name:      createForm.sender_name,
+        sender_id:        createForm.sender_id || null,
+      }, createFiles)
       notify.success('Tạo record thành công', 'Record mới đã được thêm vào hệ thống')
-      setCreateOpen(false)
-      setCreateForm(EMPTY_FORM)
+      closeCreateModal()
       updateFilters({})
+      refetchStats()
     } catch (err) {
       notify.error('Tạo record thất bại', err?.response?.data?.error || 'Có lỗi xảy ra')
     } finally {
@@ -475,24 +519,81 @@ export default function RecordsPage() {
       {createOpen && (
         <div
           className="recModalOverlay"
-          onClick={e => e.target === e.currentTarget && setCreateOpen(false)}
+          onClick={e => e.target === e.currentTarget && closeCreateModal()}
         >
           <div className="recModal">
             <div className="recModal__header">
               <div className="recModal__title">Tạo Record thủ công</div>
-              <button className="recModal__close" onClick={() => setCreateOpen(false)}>✕</button>
+              <button className="recModal__close" onClick={closeCreateModal}>✕</button>
             </div>
 
             <div className="recModal__body">
-              <div className="recModalField">
-                <label>Ghi chú</label>
+              {/* Ghi chú */}
+              <div className={`recModalField${createErrors.content ? ' recModalField--error' : ''}`}>
+                <label>
+                  Ghi chú
+                  <span className="recModalFieldRequired"> *</span>
+                  <span className="recModalFieldHint"> (hoặc đính kèm ảnh)</span>
+                </label>
                 <textarea
                   className="recModalTextarea"
                   rows={3}
                   placeholder="Nhập nội dung ghi chú…"
                   value={createForm.note}
-                  onChange={e => setCreateForm(f => ({ ...f, note: e.target.value }))}
+                  onChange={e => {
+                    setCreateForm(f => ({ ...f, note: e.target.value }))
+                    if (e.target.value.trim()) setCreateErrors(p => ({ ...p, content: false }))
+                  }}
                 />
+              </div>
+
+              {/* Ảnh đính kèm */}
+              <div className="recModalField">
+                <label>Ảnh đính kèm <span className="recModalFieldHint">tối đa 3 ảnh · 10MB/ảnh</span></label>
+                <div
+                  className={`recModalUploadZone${isDragging ? ' recModalUploadZone--drag' : ''}${createErrors.content ? ' recModalUploadZone--error' : ''}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                >
+                  {createFiles.length === 0 ? (
+                    <div className="recModalUploadPlaceholder">
+                      <span className="recModalUploadIcon">🖼</span>
+                      <span>Nhấn hoặc kéo ảnh vào đây</span>
+                      <span className="recModalUploadHint">JPG, PNG, WEBP</span>
+                    </div>
+                  ) : (
+                    <div className="recModalFilePreviews">
+                      {createFiles.map((file, i) => (
+                        <div key={i} className="recModalFileItem">
+                          <img src={URL.createObjectURL(file)} alt="" />
+                          <button
+                            type="button"
+                            className="recModalFileRemove"
+                            onClick={e => { e.stopPropagation(); removeFile(i) }}
+                          >✕</button>
+                        </div>
+                      ))}
+                      {createFiles.length < 3 && (
+                        <div className="recModalFileAdd" onClick={e => { e.stopPropagation(); fileInputRef.current?.click() }}>
+                          <span>+</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={handleFileSelect}
+                  />
+                </div>
+                {createErrors.content && (
+                  <span className="recModalError">Vui lòng nhập ghi chú hoặc đính kèm ảnh</span>
+                )}
               </div>
 
               <div className="recModalRow">
@@ -508,15 +609,31 @@ export default function RecordsPage() {
                     <option value="zalo">Zalo</option>
                   </select>
                 </div>
-                <div className="recModalField">
-                  <label>Người gửi</label>
-                  <input
-                    className="recModalInput"
-                    type="text"
-                    placeholder="Tên người gửi…"
-                    value={createForm.sender_name}
-                    onChange={e => setCreateForm(f => ({ ...f, sender_name: e.target.value }))}
-                  />
+                <div className={`recModalField${createErrors.sender_name ? ' recModalField--error' : ''}`}>
+                  <label>Người gửi <span className="recModalFieldRequired">*</span></label>
+                  <select
+                    className="recModalSelect"
+                    value={createForm.sender_id}
+                    onChange={e => {
+                      const user = systemUsers.find(u => u.id === e.target.value)
+                      setCreateForm(f => ({
+                        ...f,
+                        sender_id:   e.target.value,
+                        sender_name: user?.name || '',
+                      }))
+                      if (e.target.value) setCreateErrors(p => ({ ...p, sender_name: false }))
+                    }}
+                  >
+                    <option value="">-- Chọn người gửi --</option>
+                    {systemUsers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}{u.username ? ` (@${u.username})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {createErrors.sender_name && (
+                    <span className="recModalError">Bắt buộc chọn</span>
+                  )}
                 </div>
               </div>
 
@@ -551,7 +668,7 @@ export default function RecordsPage() {
             </div>
 
             <div className="recModal__footer">
-              <button className="bbo-btn bbo-btn-md" onClick={() => setCreateOpen(false)}>Hủy</button>
+              <button className="bbo-btn bbo-btn-md" onClick={closeCreateModal}>Hủy</button>
               <button
                 className="bbo-btn bbo-btn-md bbo-btn-primary"
                 onClick={handleCreate}

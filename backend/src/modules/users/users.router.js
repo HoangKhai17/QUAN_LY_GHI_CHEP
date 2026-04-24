@@ -63,6 +63,14 @@ router.post('/', requireAuth, requireRole('admin', 'manager'), async (req, res) 
   }
 })
 
+// GET /api/users/list — tất cả user đã login xem được, dùng cho dropdown chọn người gửi
+router.get('/list', requireAuth, async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT id, name, username, role FROM users WHERE is_active = TRUE ORDER BY name`
+  )
+  res.json({ data: rows })
+})
+
 // GET /api/users — admin hoặc manager xem danh sách
 router.get('/', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { role, is_active, page = 1, limit = 20 } = req.query

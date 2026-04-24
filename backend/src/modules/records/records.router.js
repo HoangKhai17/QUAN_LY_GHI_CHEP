@@ -1,4 +1,5 @@
 const router     = require('express').Router()
+const path       = require('path')
 const db         = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
@@ -8,6 +9,17 @@ const { logAudit }   = require('../../services/audit.service')
 const docTypeSvc     = require('../../services/document-types.service')
 const rfvService     = require('../../services/record-field-value.service')
 const { mapValueToColumn } = require('../../services/extraction-normalizer.service')
+const storageSvc = require('../../services/storage.service')
+
+const multer = require('multer')
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 3 },
+  fileFilter(_req, file, cb) {
+    if (!file.mimetype.startsWith('image/')) return cb(new Error('Chỉ chấp nhận file ảnh (jpg, png, webp…)'))
+    cb(null, true)
+  },
+})
 
 router.use(requireAuth)
 
@@ -66,11 +78,14 @@ function buildFvCondition(fieldKey, op, rawVal, params) {
 }
 
 // ── POST /api/records ─────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
-  const { note, category_id, document_type_id, platform, sender_name } = req.body || {}
+router.post('/', upload.array('images', 3), async (req, res) => {
+  const { note, category_id, document_type_id, platform, sender_name, sender_id } = req.body || {}
 
-  if (!note?.trim() && !sender_name?.trim()) {
-    return res.status(400).json({ error: 'Cần có ít nhất ghi chú hoặc tên người gửi' })
+  if (!sender_name?.trim()) {
+    return res.status(400).json({ error: 'Tên người gửi là bắt buộc' })
+  }
+  if (!note?.trim() && !(req.files?.length > 0)) {
+    return res.status(400).json({ error: 'Vui lòng nhập ghi chú hoặc đính kèm ít nhất 1 ảnh' })
   }
 
   const VALID_PLATFORMS = ['telegram', 'zalo', 'manual']
@@ -92,10 +107,28 @@ router.post('/', async (req, res) => {
       category_id || null,
       document_type_id || null,
       plat,
-      sender_name?.trim() || null,
-      req.user.sub,
+      sender_name.trim(),
+      sender_id || req.user.sub,
     ]
   )
+
+  // Upload first image to Cloudinary if provided
+  let image_url = null, image_thumbnail = null
+  if (req.files?.length > 0) {
+    try {
+      const file = req.files[0]
+      const ext  = path.extname(file.originalname || '.jpg') || '.jpg'
+      const result = await storageSvc.uploadImage(file.buffer, `manual_${record.id}_${Date.now()}${ext}`)
+      image_url       = result.image_url
+      image_thumbnail = result.thumbnail_url
+      await db.query(
+        `UPDATE records SET image_url = $1, image_thumbnail = $2, image_key = $3 WHERE id = $4`,
+        [image_url, image_thumbnail, image_url, record.id]
+      )
+    } catch (uploadErr) {
+      logger.warn('records.manual.upload_failed', { recordId: record.id, error: uploadErr.message })
+    }
+  }
 
   logAudit({
     userId: req.user.sub, action: 'create', resource: 'record', resourceId: record.id,
@@ -103,7 +136,7 @@ router.post('/', async (req, res) => {
     req,
   })
 
-  res.status(201).json(record)
+  res.status(201).json({ ...record, image_url, image_thumbnail })
 })
 
 // ── GET /api/records/senders — distinct sender names for filter dropdown ──────

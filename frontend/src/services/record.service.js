@@ -28,8 +28,18 @@ export async function deleteRecord(id) {
   return data
 }
 
-export async function createRecord(payload) {
-  const { data } = await api.post('/api/records', payload)
+export async function createRecord(payload, files = []) {
+  const form = new FormData()
+  if (payload.note)             form.append('note',             payload.note)
+  if (payload.category_id)      form.append('category_id',      payload.category_id)
+  if (payload.document_type_id) form.append('document_type_id', payload.document_type_id)
+  if (payload.platform)         form.append('platform',         payload.platform)
+  if (payload.sender_name)      form.append('sender_name',      payload.sender_name)
+  if (payload.sender_id)        form.append('sender_id',        payload.sender_id)
+  files.forEach(file => form.append('images', file))
+  const { data } = await api.post('/api/records', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
   return data
 }
 
@@ -46,6 +56,11 @@ export async function getSenders() {
 export async function getDocumentTypes() {
   const { data } = await api.get('/api/document-types')
   return data // { data: [] }
+}
+
+export async function getUsers() {
+  const { data } = await api.get('/api/users/list')
+  return data // { data: [{id, name, username, role}] }
 }
 
 export async function getRecordStats(params = {}) {

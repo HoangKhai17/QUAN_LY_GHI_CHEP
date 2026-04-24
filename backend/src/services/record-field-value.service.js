@@ -227,4 +227,41 @@ function _serializeValue(v) {
   return val !== null ? String(val) : null
 }
 
-module.exports = { upsertMany, updateSingle, getForRecord, getReportableForRecords }
+/**
+ * Batch-fetch field values for multiple records.
+ * Returns { [record_id]: { [field_key]: { label, data_type, unit, value, source, confidence } } }
+ */
+async function getForRecords(recordIds) {
+  if (!recordIds?.length) return {}
+  const { rows } = await db.query(
+    `SELECT
+       rfv.record_id,
+       dtf.field_key,
+       dtf.label,
+       dtf.data_type,
+       dtf.unit,
+       rfv.value_text, rfv.value_number, rfv.value_date,
+       rfv.value_datetime, rfv.value_boolean, rfv.value_json,
+       rfv.source, rfv.confidence
+     FROM record_field_values rfv
+     JOIN document_type_fields dtf ON dtf.id = rfv.field_id
+     WHERE rfv.record_id = ANY($1::uuid[])
+     ORDER BY dtf.display_order`,
+    [recordIds]
+  )
+  const result = {}
+  for (const row of rows) {
+    if (!result[row.record_id]) result[row.record_id] = {}
+    result[row.record_id][row.field_key] = {
+      label:      row.label,
+      data_type:  row.data_type,
+      unit:       row.unit,
+      value:      _resolveValue(row),
+      source:     row.source,
+      confidence: row.confidence ? parseFloat(row.confidence) : null,
+    }
+  }
+  return result
+}
+
+module.exports = { upsertMany, updateSingle, getForRecord, getForRecords, getReportableForRecords }

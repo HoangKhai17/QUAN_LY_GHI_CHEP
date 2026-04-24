@@ -1,0 +1,203 @@
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.dtv-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 32px 32px 0;
+  min-height: 100%;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+.dtv-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dtv-toolbar__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -.3px;
+}
+.dtv-toolbar__sub {
+  font-size: 12.5px;
+  color: var(--ink3);
+  margin-top: 3px;
+}
+
+/* ── Type tabs ───────────────────────────────────────────────────────────── */
+.dtv-tabs-card {
+  padding: 10px 14px !important;
+}
+.dtv-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dtv-tabs-empty {
+  font-size: 13px;
+  color: var(--ink3);
+  font-style: italic;
+  padding: 4px 0;
+}
+.dtv-tab {
+  padding: 6px 14px;
+  border: 1.5px solid var(--line2);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink2);
+  cursor: pointer;
+  transition: all .15s;
+  font-family: 'Montserrat', sans-serif;
+}
+.dtv-tab:hover { border-color: var(--primary); color: var(--primary); }
+.dtv-tab--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* ── Filter bar ──────────────────────────────────────────────────────────── */
+.dtv-filters {
+  padding: 16px 18px !important;
+}
+.dtv-filters__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dtv-filters__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.dtv-filter-active-badge {
+  display: inline-block;
+  background: #fff7e7;
+  color: #b7791f;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.dtv-filters__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+.dtv-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 160px;
+  max-width: 220px;
+}
+.dtv-filter-item__label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink3);
+}
+.dtv-filter-item__unit {
+  font-weight: 400;
+  color: var(--ink3);
+}
+.dtv-filter-item__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dtv-filter-op {
+  border: 1.5px solid var(--line2);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 12px;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--ink);
+  background: #fff;
+  outline: none;
+  flex-shrink: 0;
+  max-width: 90px;
+}
+.dtv-filter-op:focus { border-color: var(--primary); }
+.dtv-filter-input {
+  flex: 1;
+  min-width: 0;
+  border: 1.5px solid var(--line2);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  font-family: 'Montserrat', sans-serif;
+  color: var(--ink);
+  outline: none;
+  transition: border-color .15s;
+}
+.dtv-filter-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,122,67,.08); }
+.dtv-filter-clear-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink3);
+  padding: 4px;
+  flex-shrink: 0;
+}
+.dtv-filter-clear-btn:hover { color: var(--danger); }
+.dtv-filters__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--line2);
+  padding-top: 12px;
+}
+
+/* ── Pivot table ─────────────────────────────────────────────────────────── */
+.dtv-pivot-row {
+  display: grid;
+  align-items: center;
+}
+
+/* Column alignment */
+.dtv-col--num { text-align: right; }
+.dtv-col-unit {
+  font-size: 10.5px;
+  color: var(--ink3);
+  font-weight: 500;
+}
+
+/* Data cells */
+.dtv-cell {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dtv-cell--num {
+  font-weight: 700;
+  color: #1f7a43;
+  text-align: right;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 12.5px;
+}
+.dtv-cell--empty { color: var(--ink3); }
+.dtv-cell-human {
+  font-size: 10px;
+  color: #2563eb;
+  margin-left: 4px;
+  vertical-align: super;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .dtv-page { padding: 20px 16px 0; }
+  .dtv-filters__grid { gap: 10px 12px; }
+  .dtv-filter-item { min-width: 140px; }
+}

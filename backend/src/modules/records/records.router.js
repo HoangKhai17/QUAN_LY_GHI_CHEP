@@ -13,12 +13,65 @@ router.use(requireAuth)
 
 const VALID_STATUSES = ['new', 'reviewed', 'approved', 'flagged', 'deleted']
 
+/**
+ * Build an EXISTS subquery for a single field-value filter.
+ * Mutates params array (push values) and returns the SQL fragment or null.
+ *
+ * Operators: gte / lte (numeric), from / to (date), like (text ILIKE), eq (auto-detect)
+ */
+function buildFvCondition(fieldKey, op, rawVal, params) {
+  if (rawVal === undefined || rawVal === null || rawVal === '') return null
+  if (!/^[a-zA-Z0-9_]+$/.test(fieldKey)) return null // safety
+
+  let col, castVal, sqlOp
+
+  if (op === 'gte' || op === 'lte') {
+    const n = parseFloat(rawVal)
+    if (isNaN(n)) return null
+    col = 'rfv_fv.value_number'
+    castVal = n
+    sqlOp = op === 'gte' ? '>=' : '<='
+  } else if (op === 'from' || op === 'to') {
+    col = 'rfv_fv.value_date'
+    castVal = rawVal
+    sqlOp = op === 'from' ? '>=' : '<='
+  } else if (op === 'like') {
+    col = 'rfv_fv.value_text'
+    castVal = `%${rawVal}%`
+    sqlOp = 'ILIKE'
+  } else { // eq
+    const n = parseFloat(rawVal)
+    if (!isNaN(n) && String(rawVal).trim() !== '') {
+      col = 'rfv_fv.value_number'; castVal = n
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(rawVal)) {
+      col = 'rfv_fv.value_date'; castVal = rawVal
+    } else {
+      col = 'rfv_fv.value_text'; castVal = rawVal
+    }
+    sqlOp = '='
+  }
+
+  params.push(fieldKey)
+  const keyN = params.length
+  params.push(castVal)
+  const valN = params.length
+
+  return `EXISTS (
+    SELECT 1 FROM record_field_values rfv_fv
+    JOIN document_type_fields dtf_fv ON dtf_fv.id = rfv_fv.field_id
+    WHERE rfv_fv.record_id = r.id
+      AND dtf_fv.field_key = $${keyN}
+      AND ${col} ${sqlOp} $${valN}
+  )`
+}
+
 // ── GET /api/records ──────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   const {
     status, platform, sender_id, category_id,
     document_type_id, extraction_status,
     date_from, date_to,
+    include_field_values,
     page = 1, limit = 20,
   } = req.query
 
@@ -47,6 +100,18 @@ router.get('/', async (req, res) => {
   if (date_from)         conditions.push(`r.received_at >= $${params.push(date_from)}`)
   if (date_to)           conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
 
+  // ── Dynamic field-value filters: ?fv[field_key][op]=value ──
+  const fvFilters = req.query.fv
+  if (fvFilters && typeof fvFilters === 'object') {
+    for (const [fieldKey, ops] of Object.entries(fvFilters)) {
+      if (!ops || typeof ops !== 'object') continue
+      for (const [op, rawVal] of Object.entries(ops)) {
+        const cond = buildFvCondition(fieldKey, op, rawVal, params)
+        if (cond) conditions.push(cond)
+      }
+    }
+  }
+
   const where       = `WHERE ${conditions.join(' AND ')}`
   const countParams = [...params]
   params.push(limitNum, offset)
@@ -62,7 +127,7 @@ router.get('/', async (req, res) => {
             dt.name  AS document_type_name,
             r.received_at, r.created_at, r.updated_at
      FROM records r
-     LEFT JOIN categories    c  ON r.category_id      = c.id
+     LEFT JOIN categories     c  ON r.category_id      = c.id
      LEFT JOIN document_types dt ON r.document_type_id = dt.id
      ${where}
      ORDER BY r.received_at DESC
@@ -75,7 +140,14 @@ router.get('/', async (req, res) => {
     countParams
   )
 
-  res.json({ data: rows, total: count, page: pageNum, total_pages: Math.ceil(count / limitNum) })
+  // Batch-attach field values when requested (document-type pivot view)
+  let data = rows
+  if (include_field_values === 'true' && rows.length > 0) {
+    const fvMap = await rfvService.getForRecords(rows.map(r => r.id))
+    data = rows.map(r => ({ ...r, field_values: fvMap[r.id] ?? {} }))
+  }
+
+  res.json({ data, total: count, page: pageNum, total_pages: Math.ceil(count / limitNum) })
 })
 
 // ── GET /api/records/:id ──────────────────────────────────────────────────────

@@ -9,7 +9,9 @@ const { logAudit }   = require('../../services/audit.service')
 const docTypeSvc     = require('../../services/document-types.service')
 const rfvService     = require('../../services/record-field-value.service')
 const { mapValueToColumn } = require('../../services/extraction-normalizer.service')
-const storageSvc = require('../../services/storage.service')
+const storageSvc   = require('../../services/storage.service')
+const ocrService   = require('../../services/ocr.service')
+const { normalize } = require('../../services/extraction-normalizer.service')
 
 const multer = require('multer')
 const upload = multer({
@@ -94,13 +96,17 @@ router.post('/', upload.array('images', 3), async (req, res) => {
     return res.status(400).json({ error: `platform phải là một trong: ${VALID_PLATFORMS.join(', ')}` })
   }
 
+  const hasImage    = req.files?.length > 0
+  const initOcrSt   = hasImage ? 'pending' : 'success'
+  const initExtrSt  = hasImage ? 'pending' : 'done'
+
   const { rows: [record] } = await db.query(
     `INSERT INTO records
        (note, category_id, document_type_id, platform, sender_name,
         sender_id, status, ocr_status, extraction_status, received_at, created_at, updated_at)
      VALUES
        ($1, $2, $3, $4, $5,
-        $6, 'new', 'pending', 'done', NOW(), NOW(), NOW())
+        $6, 'new', $7, $8, NOW(), NOW(), NOW())
      RETURNING id, note, category_id, document_type_id, platform, sender_name, status, received_at`,
     [
       note?.trim() || null,
@@ -109,12 +115,14 @@ router.post('/', upload.array('images', 3), async (req, res) => {
       plat,
       sender_name.trim(),
       sender_id || req.user.sub,
+      initOcrSt,
+      initExtrSt,
     ]
   )
 
   // Upload first image to Cloudinary if provided
   let image_url = null, image_thumbnail = null
-  if (req.files?.length > 0) {
+  if (hasImage) {
     try {
       const file = req.files[0]
       const ext  = path.extname(file.originalname || '.jpg') || '.jpg'
@@ -125,6 +133,55 @@ router.post('/', upload.array('images', 3), async (req, res) => {
         `UPDATE records SET image_url = $1, image_thumbnail = $2, image_key = $3 WHERE id = $4`,
         [image_url, image_thumbnail, image_url, record.id]
       )
+
+      // Run OCR + normalization asynchronously — don't block the response
+      const recordId = record.id
+      setImmediate(async () => {
+        try {
+          const ocrResult = await ocrService.extractText(image_url)
+          let extraction  = null
+
+          if (ocrResult.status === 'success') {
+            try { extraction = await normalize(ocrResult) } catch (normErr) {
+              logger.warn('records.manual.normalize_error', { recordId, error: normErr.message })
+            }
+          }
+
+          await db.query(
+            `UPDATE records SET
+               ocr_text = $1, ocr_status = $2, ocr_confidence = $3,
+               document_type_id         = COALESCE($4, document_type_id),
+               suggested_category_id    = COALESCE($5, suggested_category_id),
+               classification_confidence = $6,
+               extraction_status = $7, extracted_data = $8::jsonb,
+               updated_at = NOW()
+             WHERE id = $9`,
+            [
+              ocrResult.text,
+              ocrResult.status,
+              ocrResult.confidence,
+              extraction?.document_type_id          ?? null,
+              extraction?.suggested_category_id     ?? null,
+              extraction?.classification_confidence ?? null,
+              extraction?.extraction_status ?? (ocrResult.status === 'failed' ? 'failed' : 'done'),
+              extraction?.extracted_data != null ? JSON.stringify(extraction.extracted_data) : null,
+              recordId,
+            ]
+          )
+
+          if (extraction?.fieldEntries?.length) {
+            await rfvService.upsertMany(recordId, extraction.fieldEntries)
+          }
+
+          logger.info('records.manual.ocr_done', { recordId, ocrStatus: ocrResult.status })
+        } catch (ocrErr) {
+          logger.warn('records.manual.ocr_failed', { recordId, error: ocrErr.message })
+          await db.query(
+            `UPDATE records SET ocr_status = 'failed', extraction_status = 'failed', updated_at = NOW() WHERE id = $1`,
+            [recordId]
+          )
+        }
+      })
     } catch (uploadErr) {
       logger.warn('records.manual.upload_failed', { recordId: record.id, error: uploadErr.message })
     }
@@ -216,12 +273,14 @@ router.get('/', async (req, res) => {
     search, sender_name,
     date_from, date_to,
     include_field_values,
+    sort_order,
     page = 1, limit = 20,
   } = req.query
 
-  const pageNum  = Math.max(1, parseInt(page)  || 1)
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
-  const offset   = (pageNum - 1) * limitNum
+  const pageNum   = Math.max(1, parseInt(page)  || 1)
+  const limitNum  = Math.min(100, Math.max(1, parseInt(limit) || 20))
+  const offset    = (pageNum - 1) * limitNum
+  const orderDir  = sort_order === 'asc' ? 'ASC' : 'DESC'
 
   const conditions = []
   const params     = []
@@ -312,7 +371,7 @@ router.get('/', async (req, res) => {
      LEFT JOIN categories     c  ON r.category_id      = c.id
      LEFT JOIN document_types dt ON r.document_type_id = dt.id
      ${where}
-     ORDER BY r.received_at DESC
+     ORDER BY r.received_at ${orderDir}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   )

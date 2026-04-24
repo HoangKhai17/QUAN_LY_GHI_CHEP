@@ -18,11 +18,12 @@ const STATUS_OPTIONS = [
 const PLATFORM_OPTIONS = [
   { value: 'telegram', label: 'Telegram' },
   { value: 'zalo',     label: 'Zalo' },
+  { value: 'manual',   label: 'Thủ công' },
 ]
 
 const EMPTY_DRAFT = {
   search: '', platform: [], status: [], category_id: [], document_type_id: [],
-  sender_name: [], date_from: '', date_to: '',
+  sender_name: [], date_from: '', date_to: '', sort_order: 'desc',
 }
 
 const EMPTY_FORM = {
@@ -128,7 +129,7 @@ export default function RecordsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const { record: detailRec, loading: loadingDetail, openById, close: closeDetail } = useRecordDetail()
+  const { record: detailRec, loading: loadingDetail, openById, close: closeDetail, refetch: refetchDetail } = useRecordDetail()
   const [detailOpen, setDetailOpen] = useState(false)
 
   const [draft, setDraft]           = useState(EMPTY_DRAFT)
@@ -183,12 +184,19 @@ export default function RecordsPage() {
       sender_name:      draft.sender_name.join(','),
       date_from:        draft.date_from,
       date_to:          draft.date_to,
+      sort_order:       draft.sort_order,
     })
   }
 
   function resetFilters() {
     setDraft(EMPTY_DRAFT)
-    updateFilters({ search: '', platform: '', status: '', category_id: '', document_type_id: '', sender_name: '', date_from: '', date_to: '' })
+    updateFilters({ search: '', platform: '', status: '', category_id: '', document_type_id: '', sender_name: '', date_from: '', date_to: '', sort_order: 'desc' })
+  }
+
+  // Sort applies immediately without needing "Tìm record"
+  function handleSortChange(value) {
+    setDraft(d => ({ ...d, sort_order: value }))
+    updateFilters({ sort_order: value })
   }
 
   // Remove a single value from a multi-filter chip
@@ -418,6 +426,27 @@ export default function RecordsPage() {
             />
           </div>
 
+          {/* Sắp xếp */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Sắp xếp</label>
+            <div className="recSortToggle">
+              <button
+                className={`recSortBtn${draft.sort_order === 'desc' ? ' recSortBtn--active' : ''}`}
+                onClick={() => handleSortChange('desc')}
+                title="Mới nhất trước"
+              >
+                ↓ Mới nhất
+              </button>
+              <button
+                className={`recSortBtn${draft.sort_order === 'asc' ? ' recSortBtn--active' : ''}`}
+                onClick={() => handleSortChange('asc')}
+                title="Cũ nhất trước"
+              >
+                ↑ Cũ nhất
+              </button>
+            </div>
+          </div>
+
           {/* Từ khóa — wide */}
           <div className="recFilterField recFilterField--wide">
             <label className="recFilterLabel">Từ khóa</label>
@@ -506,6 +535,7 @@ export default function RecordsPage() {
         record={detailRec}
         loading={loadingDetail}
         onClose={() => { setDetailOpen(false); closeDetail() }}
+        onRefreshRecord={refetchDetail}
         onStatusChange={(id, patch) => { updateRecord(id, patch); refetchStats() }}
         onDelete={id => {
           removeRecord(id)

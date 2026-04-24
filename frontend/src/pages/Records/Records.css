@@ -115,6 +115,38 @@
   letter-spacing: .4px;
 }
 
+/* Sort toggle */
+.recSortToggle {
+  display: flex;
+  border: 1.5px solid var(--line2);
+  border-radius: 9px;
+  overflow: hidden;
+  height: 42px;
+}
+.recSortBtn {
+  flex: 1;
+  background: #fff;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink3);
+  cursor: pointer;
+  padding: 0 10px;
+  transition: background .12s, color .12s;
+  font-family: 'Montserrat', sans-serif;
+  white-space: nowrap;
+}
+.recSortBtn + .recSortBtn {
+  border-left: 1.5px solid var(--line2);
+}
+.recSortBtn:hover { background: var(--canvas); color: var(--ink); }
+.recSortBtn--active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.recSortBtn--active:hover { background: var(--primary-dark, #157a2f); }
+
 .recFilterSelect,
 .recFilterInput {
   border: 1.5px solid var(--line2);

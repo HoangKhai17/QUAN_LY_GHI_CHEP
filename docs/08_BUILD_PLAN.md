@@ -905,7 +905,7 @@ src/store/notifications.store.js  ← số records mới chưa đọc
 
 ## 📅 PHASE 4 — DASHBOARD & RECORD REVIEW ✅ ĐÃ XONG
 > **Thời gian:** 4 ngày | **Mục tiêu:** Quản lý xem và duyệt được records
-> **Trạng thái (2026-04-23):** Hoàn thành toàn bộ Steps 4.0 → 4.6. Dashboard, RecordList, RecordDetail, Records page, Filter & Pagination, Error/Loading states đều đã triển khai và build pass.
+> **Trạng thái (2026-04-24):** Hoàn thành toàn bộ Steps 4.0 → 4.6. Dashboard, RecordList, RecordDetail, Records page, Filter & Pagination, Error/Loading states. **Bổ sung thêm:** Stats cards auto-refresh, bulk select & delete, sort order toggle, tạo record thủ công (upload ảnh + OCR async), dropdown người gửi từ danh sách system users, filter-aware optimistic UI.
 
 ### Step 4.0 — UI Design & Layout ✅ ĐÃ XONG
 
@@ -1151,71 +1151,130 @@ Error states:
   [x] 401 → api.js interceptor redirect về /login
 
 Files đã tạo / cập nhật:
+  # Frontend — Pages
   src/pages/Dashboard/index.jsx              ✅
   src/pages/Dashboard/Dashboard.css          ✅
-  src/pages/Records/index.jsx                ✅  (route /app/records)
-  src/pages/Records/Records.css              ✅
+  src/pages/Records/index.jsx                ✅  (filter bar, sort toggle, tạo record thủ công)
+  src/pages/Records/Records.css              ✅  (upload zone, sort toggle, field errors)
+
+  # Frontend — Components
+  src/components/AppLayout/index.jsx         ✅  (bell badge, dropdown events, socket connect)
+  src/components/AppLayout/AppLayout.css     ✅  (bellBadge, bellDropdown)
   src/components/dashboard/SummaryCards.jsx  ✅
-  src/components/records/RecordList.jsx      ✅
+  src/components/records/RecordList.jsx      ✅  (bulk select, checkbox, delete hàng loạt)
   src/components/records/RecordList.css      ✅
-  src/components/records/RecordDetailDrawer.jsx ✅
-  src/components/records/RecordDetailDrawer.css ✅
+  src/components/records/RecordDetailDrawer.jsx ✅  (OCR polling, extracted fields panel)
+  src/components/records/RecordDetailDrawer.css ✅  (ocr-processing spinner, field-value styles)
   src/components/records/StatusBadge.jsx     ✅
   src/components/records/PlatformBadge.jsx   ✅
   src/components/records/FlagDialog.jsx      ✅
+
+  # Frontend — Hooks & Services
   src/hooks/useDashboardSummary.js           ✅
-  src/hooks/useRecordsQuery.js               ✅
-  src/hooks/useRecordDetail.js               ✅
+  src/hooks/useRecordsQuery.js               ✅  (updateRecord filter-aware, removeRecord)
+  src/hooks/useRecordDetail.js               ✅  (refetch() cho OCR polling)
   src/services/dashboard.service.js          ✅
-  src/services/record.service.js             ✅
-  src/styles/components.css                  ✅  (global shared classes)
-  src/App.jsx                                ✅  (thêm route records)
-  src/components/AppLayout/index.jsx         ✅  (thêm nav Danh sách Record)
-  src/main.jsx                               ✅  (import styles/components.css)
+  src/services/record.service.js             ✅  (createRecord multipart, getUsers)
+  src/services/socket.js                     ✅  (connectSocket với JWT auth)
+
+  # Frontend — Store & Shared
+  src/store/notifications.store.js           ✅  (pendingCount, events, pushNewRecord, syncPending)
+  src/styles/components.css                  ✅
+  src/App.jsx                                ✅
+  src/main.jsx                               ✅
+
+  # Backend — Records
+  backend/src/modules/records/records.router.js ✅
+    ├─ POST /api/records     (multer upload, Cloudinary, OCR async via setImmediate)
+    ├─ GET  /api/records     (thêm sort_order, sender_name CSV filter, search)
+    ├─ GET  /api/records/stats    (breakdown theo status)
+    └─ GET  /api/records/senders  (distinct sender_name)
+
+  # Backend — Users
+  backend/src/modules/users/users.router.js  ✅
+    └─ GET /api/users/list   (dropdown người gửi — auth only, no role check)
+
+  # Backend — Notifications
+  backend/src/modules/notifications/socket.js          ✅
+  backend/src/modules/notifications/notifications.router.js ✅
+    └─ GET /api/notifications/summary
 ```
 
 ---
 
-## 📅 PHASE 5 — REALTIME NOTIFICATIONS
+## 📅 PHASE 5 — REALTIME NOTIFICATIONS ✅ ĐÃ XONG
 > **Thời gian:** 2 ngày | **Mục tiêu:** Dashboard tự cập nhật khi có record mới
+> **Trạng thái (2026-04-24):** Hoàn thành. Socket.io server + client, bell badge, dropdown events, toast notifications, optimistic list update.
 
-### Step 5.1 — Socket.io Server
+### Step 5.1 — Socket.io Server ✅ ĐÃ XONG
 
 **File:** `backend/src/modules/notifications/socket.js`
 
 ```js
+// JWT auth middleware trong handshake
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token
+  // verify JWT → socket.data.userId
+})
+
 // Khi backend xử lý xong record mới từ bất kỳ platform:
 io.emit('new_record', {
   record: { id, sender_name, received_at, status },
   count: await getPendingCount()
 })
 
-// Khi record bị update:
-io.emit('record_updated', { record_id, new_status })
+// Khi record bị update (approve/flag/review):
+io.emit('record_updated', { record_id, new_status, pending })
 ```
 
-### Step 5.2 — Socket.io Client (Frontend)
+### Step 5.2 — Socket.io Client (Frontend) ✅ ĐÃ XONG
 
 ```
 src/services/socket.js
-  ├── Connect khi login (kèm JWT token trong auth handshake)
-  ├── Listen 'new_record' → update notification store
-  └── Listen 'record_updated' → update record trong list
+  ├── connectSocket(token) — io(baseURL, { auth: { token } })
+  ├── Export singleton instance
 
-src/components/NotificationBell/
-  ├── Bell icon với badge số (từ notifications.store)
-  └── Dropdown list 5 records mới nhất
+src/store/notifications.store.js (Zustand)
+  ├── pendingCount    — số badge trên bell icon
+  ├── events[]        — danh sách events gần nhất
+  ├── pushNewRecord() — thêm event vào đầu mảng, tăng pendingCount
+  └── syncPending()   — cập nhật badge từ record_updated event
+
+src/components/AppLayout/index.jsx
+  ├── Bell icon với badge đỏ (pendingCount)
+  ├── Dropdown list events (click vào mở drawer record)
+  └── connectSocket trong useEffect khi có accessToken
 ```
 
-### Step 5.3 — Toast Notification
+### Step 5.3 — Toast Notification ✅ ĐÃ XONG
 
-Khi có `new_record` event:
-```
-Ant Design notification.open({
-  message: "Có ghi chép mới",
-  description: "Nguyễn A vừa gửi 1 ảnh hóa đơn",
-  duration: 4
+```js
+// Ant Design notification API
+socket.on('new_record', payload => {
+  pushNewRecord(payload)
+  notification.info({
+    message: 'Record mới',
+    description: `${payload.record?.sender_name} vừa gửi record mới`,
+    duration: 4,
+  })
 })
+```
+
+### Step 5.4 — Filter-aware Optimistic Update ✅ ĐÃ XONG
+
+Khi nhận `record_updated` — nếu `new_status` không khớp với filter `status` đang active → record tự biến mất khỏi list (không cần reload):
+
+```js
+function updateRecord(id, patch) {
+  const statusMismatch = patch.status
+    && filters.status?.length > 0
+    && !filters.status.includes(patch.status)
+  setRecords(prev => {
+    const updated = prev.map(r => r.id === id ? { ...r, ...patch } : r)
+    return statusMismatch ? updated.filter(r => r.id !== id) : updated
+  })
+  if (statusMismatch) setTotal(t => Math.max(0, t - 1))
+}
 ```
 
 ---

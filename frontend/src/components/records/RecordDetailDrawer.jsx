@@ -63,6 +63,7 @@ export default function RecordDetailDrawer({
   onClose,
   onStatusChange,
   onDelete,
+  onRefreshRecord,
 }) {
   const [note,        setNote]        = useState('')
   const [noteChanged, setNoteChanged] = useState(false)
@@ -87,6 +88,13 @@ export default function RecordDetailDrawer({
       setCategories(Array.isArray(data) ? data : (data?.data ?? []))
     }).catch(() => {})
   }, [])
+
+  // Auto-poll when OCR is still processing (manual records with uploaded image)
+  useEffect(() => {
+    if (record?.ocr_status !== 'pending' || !record?.image_url || !onRefreshRecord) return
+    const timer = setInterval(onRefreshRecord, 3000)
+    return () => clearInterval(timer)
+  }, [record?.ocr_status, record?.image_url, onRefreshRecord])
 
   async function handleApprove() {
     setSavingStatus(true)
@@ -275,10 +283,17 @@ export default function RecordDetailDrawer({
                 <div className="bbo-card">
                   <div className="bbo-card-header">
                     <div className="bbo-card-title">Văn bản OCR / AI trích xuất</div>
-                    <ConfidenceBadge value={record.ocr_confidence ?? record.confidence} />
+                    {record.ocr_status !== 'pending' && (
+                      <ConfidenceBadge value={record.ocr_confidence ?? record.confidence} />
+                    )}
                   </div>
                   <div className="bbo-card-body">
-                    {record.ocr_text ? (
+                    {record.ocr_status === 'pending' && record.image_url ? (
+                      <div className="rdd-ocr-processing">
+                        <span className="rdd-ocr-spinner" />
+                        Đang phân tích ảnh bằng AI, vui lòng chờ…
+                      </div>
+                    ) : record.ocr_text ? (
                       <pre className="rdd-ocr-box">{record.ocr_text}</pre>
                     ) : (
                       <div className="rdd-ocr-empty">Không có dữ liệu OCR</div>

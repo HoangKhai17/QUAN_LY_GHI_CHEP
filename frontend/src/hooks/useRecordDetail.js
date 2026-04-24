@@ -20,8 +20,15 @@ export default function useRecordDetail() {
     }
   }, [])
 
-  const close  = useCallback(() => { setRecord(null); setError(null) }, [])
-  const update = useCallback((patch) => setRecord(prev => prev ? { ...prev, ...patch } : prev), [])
+  const close   = useCallback(() => { setRecord(null); setError(null) }, [])
+  const update  = useCallback((patch) => setRecord(prev => prev ? { ...prev, ...patch } : prev), [])
+  const refetch = useCallback(async () => {
+    setRecord(prev => {
+      if (!prev?.id) return prev
+      getRecordById(prev.id).then(setRecord).catch(() => {})
+      return prev
+    })
+  }, [])
 
-  return { record, loading, error, openById, close, update }
+  return { record, loading, error, openById, close, update, refetch }
 }

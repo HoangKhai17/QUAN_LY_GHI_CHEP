@@ -1,5 +1,5 @@
 # 🔄 FLOW QUY TRÌNH — QUAN LY GHI CHEP
-> Phiên bản: 2.0 | Cập nhật: 2026-04-21 (multi-platform — Telegram · Zalo · Discord...)
+> Phiên bản: 3.0 | Cập nhật: 2026-04-24 (thêm FL-07 tạo record thủ công; cập nhật FL-01, FL-06)
 
 ---
 
@@ -14,7 +14,8 @@
 │  FL-03  📊 Tạo & xuất báo cáo                       (Report Flow)  │
 │  FL-04  🔍 Tìm kiếm & lọc dữ liệu                  (Search Flow)  │
 │  FL-05  ⚡ Rà soát nhanh hàng loạt                  (Quick Flow)   │
-│  FL-06  🔔 Thông báo realtime                        (Notify Flow)  │
+│  FL-06  🔔 Thông báo realtime (Socket.io)            (Notify Flow)  │
+│  FL-07  🖊️  Tạo record thủ công qua Web Form        (Manual Flow)  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,14 +71,19 @@
 │       │       ├─ [Zalo] OA Access Token → download                  │
 │       │       └─ Upload lên Cloudinary/S3 → Signed URL              │
 │       │                                                              │
-│       ├─ 9. Chạy OCR Engine                                         │
-│       │       ├─ [OCR thành công] → lưu ocr_text                   │
-│       │       └─ [OCR thất bại]  → lưu ocr_text = null             │
+│       ├─ 9. Chạy OCR + AI Extraction                                 │
+│       │       ├─ OCR Engine → ocr_text, ocr_confidence              │
+│       │       ├─ AI classify → document_type_id (gợi ý)             │
+│       │       ├─ AI extract fields → record_field_values            │
+│       │       └─ [Thất bại] → ocr_status='failed', ghi log         │
 │       │                                                              │
 │       ├─ 10. INSERT record vào Database                              │
 │       │        status = "new", platform = ?, received_at = now()    │
+│       │        ocr_status, extraction_status, extracted_data        │
 │       │                                                              │
-│       └─ 11. Emit WebSocket → Dashboard ──────────────────────────►│
+│       └─ 11. Emit Socket.io → Dashboard ──────────────────────────►│
+│               event: "new_record"                                    │
+│               payload: { record: {id, sender_name, ...}, count }    │
 │                                                                      │
 │  🖥️ DASHBOARD (Quản lý)                                              │
 │       │                                                              │
@@ -297,27 +303,58 @@
 
 ---
 
-## FL-06 🔔 Thông báo realtime
+## FL-06 🔔 Thông báo realtime (Socket.io)
 
 > **Trigger:** Các sự kiện trong hệ thống
+> **Triển khai:** Socket.io v4, JWT auth middleware, phòng (room) per-user
+
+### Socket.io Events
 
 ```
-  SỰ KIỆN                              THÔNG BÁO ĐẾN              KÊNH
-  ─────────────────────────────────────────────────────────────────────
-  📨 Record mới từ Telegram       →  👔 Quản lý (Dashboard)  →  🔔 Bell badge + toast
-  📨 Record mới từ Zalo           →  👔 Quản lý (Dashboard)  →  🔔 Bell badge + toast
-  📨 Record mới từ Discord (V1.1) →  👔 Quản lý (Dashboard)  →  🔔 Bell badge + toast
+  SỰ KIỆN                              SERVER → CLIENT              PAYLOAD
+  ─────────────────────────────────────────────────────────────────────────
+  📨 Record mới từ Telegram/Zalo/ →  event: "new_record"       →  { record: {id, sender_name,
+     Manual (Web Form)                  (broadcast tất cả manager)    received_at, status},
+                                                                       count: <số pending> }
 
-  🚩 Record bị Flag (Telegram)    →  👤 Nhân viên            →  🤖 Bot reply trực tiếp
-  🚩 Record bị Flag (Zalo)        →  👤 Nhân viên            →  📱 OA gửi message
-  🚩 Record bị Flag (Discord)     →  👤 Nhân viên            →  💬 Bot mention @user
+  🔄 Record được update trạng thái →  event: "record_updated"   →  { record_id, new_status,
+     (approve / flag / review)          (broadcast tất cả manager)    pending: <số còn mới> }
 
-  📊 Báo cáo đã tạo xong          →  👔 Quản lý (Dashboard)  →  🔔 Bell badge + auto download
+  🚩 Record bị Flag (Telegram)    →  Platform Connector         →  Bot reply trực tiếp
+  🚩 Record bị Flag (Zalo)        →  Platform Connector         →  OA gửi message
 
-  ⚠️ OCR thất bại                  →  🖥️ Admin log            →  📋 Error log (Winston/Sentry)
+  ⚠️ OCR thất bại                  →  Server log                →  Winston / Sentry
 ```
 
-### Chi tiết luồng Flag → Reply về platform gốc
+### Luồng kết nối Socket.io (Frontend)
+
+```
+  Frontend khởi động (login xong)
+         │
+         ▼
+  1. GET /api/notifications/summary → { pending: N }
+     → Khởi tạo badge số trên bell icon
+         │
+         ▼
+  2. connectSocket(accessToken)
+     → io(baseURL, { auth: { token } })
+     → Server verify JWT trong handshake middleware
+         │
+         ▼
+  3. Lắng nghe sự kiện:
+
+  socket.on("new_record", payload => {
+    pushNewRecord(payload)           // Zustand store: thêm vào events[]
+    notify.info(...)                 // Ant Design toast
+  })
+
+  socket.on("record_updated", payload => {
+    syncPending(payload.pending)     // Cập nhật badge số
+    updateRecord(id, { status })     // Cập nhật list ngay (filter-aware)
+  })
+```
+
+### Luồng Flag → Reply về platform gốc
 
 ```
   👔 Manager click [🚩 Flag] trên Dashboard
@@ -325,22 +362,90 @@
          ▼
   Backend: UPDATE records SET status='flagged', flag_reason=?
   + Ghi audit_log
+  + io.emit("record_updated", { record_id, new_status: 'flagged', pending })
          │
          ▼
-  Đọc record.platform để biết platform gốc
+  Đọc record.platform để reply về platform gốc:
          │
          ├─ platform = 'telegram'
          │       TelegramConnector.reply(platform_user_id, flag_reason)
-         │       → Bot API: sendMessage(chat_id, text)
          │
          ├─ platform = 'zalo'
          │       ZaloConnector.reply(platform_user_id, flag_reason)
-         │       → OA API: sendMessage(to_user_id, text)
+         │
+         ├─ platform = 'manual' / 'web'
+         │       Không reply ra ngoài (record tạo thủ công)
          │
          └─ platform = 'discord' (V1.1)
                  DiscordConnector.reply(platform_user_id, flag_reason)
-                 → Bot API: createMessage với @mention
 ```
+
+---
+
+## FL-07 🖊️ Tạo record thủ công qua Web Form
+
+> **Trigger:** Quản lý / Staff nhấn "Tạo record" trên trang Danh sách Records
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  👔 QUẢN LÝ / STAFF                                                  │
+│       │                                                              │
+│       ├─ 1. Nhấn nút "+ Tạo record" trên trang /app/records        │
+│       │                                                              │
+│       ├─ 2. Điền form (popup):                                       │
+│       │       ├─ Người gửi: [Dropdown danh sách system users]       │
+│       │       ├─ Ghi chú: [Textarea] (bắt buộc nếu không có ảnh)  │
+│       │       ├─ Danh mục: [Dropdown] (tùy chọn)                   │
+│       │       └─ Ảnh đính kèm: [Upload zone / drag-drop]           │
+│       │           ├─ Tối đa 3 ảnh                                   │
+│       │           └─ Chỉ chấp nhận image/* (jpg, png, webp...)     │
+│       │                                                              │
+│       └─ 3. Nhấn "Tạo record"                                       │
+│                                                                      │
+│  🖥️ FRONTEND                                                          │
+│       │                                                              │
+│       ├─ 4. Validate:                                                │
+│       │       ├─ sender_id bắt buộc                                 │
+│       │       └─ note HOẶC có ít nhất 1 ảnh                        │
+│       │                                                              │
+│       └─ 5. POST /api/records (multipart/form-data)                 │
+│               ├─ fields: sender_id, sender_name, note, ...          │
+│               └─ files: images[] (tối đa 3)                         │
+│                                                                      │
+│  🖥️ BACKEND                                                           │
+│       │                                                              │
+│       ├─ 6. [Không có ảnh]                                           │
+│       │       INSERT record: platform='manual', ocr_status='success'│
+│       │       extraction_status='done' → 201 Created                │
+│       │                                                              │
+│       └─ 7. [Có ảnh]                                                 │
+│               a. Upload ảnh lên Cloudinary → { image_url, thumb }   │
+│               b. INSERT record: ocr_status='pending'                │
+│               c. Trả 201 ngay (không block)                         │
+│               d. setImmediate → OCR pipeline (nền):                 │
+│                   ├─ ocrService.extractText(image_url)              │
+│                   ├─ normalize() → document_type, field_values       │
+│                   ├─ rfvService.upsertMany()                         │
+│                   └─ UPDATE record: ocr_status, extraction_status,   │
+│                       document_type_id, extracted_data               │
+│                                                                      │
+│  🖥️ FRONTEND (sau khi tạo xong)                                       │
+│       │                                                              │
+│       ├─ 8. Mở drawer chi tiết record vừa tạo                       │
+│       │                                                              │
+│       └─ 9. [Nếu ocr_status = 'pending']                            │
+│               Poll GET /api/records/:id mỗi 3 giây                  │
+│               → Khi ocr_status != 'pending' → dừng poll             │
+│               → Hiển thị kết quả OCR + extracted fields             │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Validation rules:**
+- `sender_id` bắt buộc (dropdown chọn từ danh sách system users)
+- Phải có ít nhất 1 trong: `note` (text) hoặc `images[]` (file)
+- Tối đa 3 ảnh, mỗi file tối đa 10 MB, chỉ nhận `image/*`
 
 ---
 
@@ -376,25 +481,68 @@ POST   /webhook/:platform             ← Dynamic: /webhook/telegram, /webhook/z
 GET    /webhook/platforms             ← Danh sách platform đang hoạt động
 
 # Records
-GET    /api/records                   ← Danh sách records (filter: platform, status, date, ...)
-GET    /api/records/:id               ← Chi tiết 1 record
-PATCH  /api/records/:id/status        ← Cập nhật trạng thái (approve/flag)
-PATCH  /api/records/:id               ← Chỉnh sửa note/category
+GET    /api/records                   ← Danh sách records
+                                         ?status=new,reviewed   (CSV)
+                                         ?platform=telegram,manual
+                                         ?sender_name=Nguyễn A  (CSV)
+                                         ?search=hóa đơn
+                                         ?date_from=&date_to=
+                                         ?sort_order=desc|asc    ← MỚI
+                                         ?category_id=&document_type_id=
+                                         ?include_field_values=true
+                                         ?fv[amount][gte]=1000000
+POST   /api/records                   ← Tạo record thủ công (multipart/form-data) ← MỚI
+GET    /api/records/stats             ← Đếm breakdown theo status (cho overview cards) ← MỚI
+GET    /api/records/senders           ← Danh sách tên người gửi distinct ← MỚI
+GET    /api/records/:id               ← Chi tiết 1 record (kèm field_values)
+PATCH  /api/records/:id/status        ← Cập nhật trạng thái (approve/flag/reviewed)
+PATCH  /api/records/:id               ← Chỉnh sửa note/category/document_type/field_values
 DELETE /api/records/:id               ← Soft delete
 
+# Users
+GET    /api/users/list                ← Danh sách user rút gọn (dropdown người gửi) ← MỚI
+GET    /api/users                     ← Danh sách đầy đủ (admin/manager)
+POST   /api/users                     ← Tạo user nội bộ
+GET    /api/users/:id
+PATCH  /api/users/:id/activate
+POST   /api/users/:id/reset-password
+PATCH  /api/users/:id/role
+
+# Document Types
+GET    /api/document-types            ← Danh sách loại tài liệu
+POST   /api/document-types            ← Tạo loại tài liệu
+GET    /api/document-types/:id        ← Chi tiết + fields
+PATCH  /api/document-types/:id        ← Cập nhật metadata
+GET    /api/document-types/:id/fields ← Danh sách trường
+POST   /api/document-types/:id/fields ← Thêm trường
+PATCH  /api/document-types/:id/fields/:fieldId ← Cập nhật trường
+DELETE /api/document-types/:id/fields/:fieldId ← Xóa trường (admin only)
+
+# Categories
+GET    /api/categories
+POST   /api/categories
+PUT    /api/categories/:id
+
+# Notifications (Socket.io + REST)
+GET    /api/notifications/summary     ← Số lượng record pending (badge khởi tạo) ← MỚI
+# Socket events: "new_record", "record_updated"
+
 # Reports
-GET    /api/reports                   ← Danh sách báo cáo đã tạo
-POST   /api/reports/generate          ← Tạo báo cáo mới (filter có thêm platform)
-GET    /api/reports/:id/download      ← Tải file báo cáo
+GET    /api/reports/summary           ← Thống kê by_status/platform/doc-type/category/timeline
+GET    /api/reports/financial         ← Báo cáo tài chính (aggregation_type=sum)
+GET    /api/reports/by-type/:code     ← Báo cáo chi tiết theo loại tài liệu
 
 # Search
-GET    /api/search?q=&platform=...    ← Tìm kiếm full-text (hỗ trợ filter platform)
+GET    /api/search?q=&platform=...    ← Tìm kiếm full-text (GIN index)
 
 # Dashboard
-GET    /api/dashboard/summary         ← Tổng quan số liệu (breakdown theo platform)
+GET    /api/dashboard/summary         ← Tổng quan số liệu today/this_week/pending_review
 
 # Auth
 POST   /api/auth/login                ← Đăng nhập → Access Token + Refresh Token
-POST   /api/auth/refresh              ← Làm mới Access Token
+POST   /api/auth/refresh              ← Làm mới Access Token (token rotation)
 POST   /api/auth/logout               ← Hủy Refresh Token
+POST   /api/auth/logout-all           ← Hủy tất cả sessions
+GET    /api/auth/me                   ← Thông tin user đang đăng nhập
+POST   /api/auth/change-password      ← Đổi mật khẩu
 ```

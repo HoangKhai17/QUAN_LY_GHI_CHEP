@@ -1,5 +1,5 @@
 # 📚 TÀI LIỆU DỰ ÁN — QUAN LY GHI CHEP
-> Hệ thống Tự động hóa Ghi chép đa nền tảng (Telegram · Zalo · Discord...) | Phiên bản: 2.0 | 2026-04-21
+> Hệ thống Tự động hóa Ghi chép đa nền tảng (Telegram · Zalo · Discord...) | Phiên bản: 3.0 | 2026-04-24
 
 ---
 
@@ -9,12 +9,12 @@
 |---|------|---------|
 | 01 | [📋 Tổng quan hệ thống](./01_TONG_QUAN.md) | Mục tiêu, actors, kiến trúc, tech stack |
 | 02 | [⚙️ Đặc tả chức năng](./02_CHUC_NANG.md) | Chi tiết 6 chức năng chính |
-| 03 | [🔄 Flow quy trình](./03_FLOW_QUY_TRINH.md) | 6 luồng xử lý, state diagram, API endpoints |
-| 04 | [💾 Database Schema](./04_DATABASE_SCHEMA.md) | Cấu trúc bảng platform-agnostic, index, dữ liệu mẫu |
+| 03 | [🔄 Flow quy trình](./03_FLOW_QUY_TRINH.md) | 7 luồng xử lý (thêm FL-07 tạo thủ công), state diagram, API endpoints |
+| 04 | [💾 Database Schema](./04_DATABASE_SCHEMA.md) | Cấu trúc bảng: users, records, document_types, record_field_values, index |
 | 05 | [🔐 Bảo mật](./05_SECURITY.md) | 5 lớp bảo mật, RBAC, encryption, PDPD compliance |
 | 06 | [🔍 Debugging & Observability](./06_DEBUGGING_OBSERVABILITY.md) | Logging, Sentry, Grafana, testing strategy |
 | 07 | [📊 Phân tích cạnh tranh](./07_COMPETITIVE_ANALYSIS.md) | So sánh thị trường, điểm cần cải thiện, roadmap |
-| 08 | [🏗️ Build Plan chi tiết](./08_BUILD_PLAN.md) | 9 phases, step-by-step, security + observability + V1.1 roadmap |
+| 08 | [🏗️ Build Plan chi tiết](./08_BUILD_PLAN.md) | 9 phases, step-by-step. Phase 0–5 ✅ Done. Phase 6–8 planned. |
 
 ---
 
@@ -49,7 +49,8 @@ POST /webhook/...       ─►
 - **F3** 📊 Tạo báo cáo ngày/tuần/tháng/quý
 - **F4** 🔍 Tìm kiếm & lọc (có thể lọc theo platform)
 - **F5** ⚡ Rà soát nhanh hàng loạt
-- **F6** 🔔 Thông báo realtime + phản hồi về platform gốc
+- **F6** 🔔 Thông báo realtime (Socket.io) + phản hồi về platform gốc
+- **F7** 🖊️ Tạo record thủ công qua Web Form (upload ảnh + OCR async)
 
 ---
 
@@ -58,12 +59,13 @@ POST /webhook/...       ─►
 ```
 Sprint 1 (2 tuần)          Sprint 2 (2 tuần)         Sprint 3 (2 tuần)
 ──────────────────────     ─────────────────────     ─────────────────
-✅ Setup project            ✅ Dashboard UI            ✅ Báo cáo Excel/PDF
-✅ Connector Layer          ✅ Rà soát/Duyệt           ✅ Tìm kiếm nâng cao
-   Telegram Bot (ưu tiên)   ✅ Realtime notify          ✅ Quick Review mode
-   Zalo OA (sau)            ✅ Auth & phân quyền        ✅ UAT & Go-live
-✅ OCR Engine
-✅ Database & API
+✅ Setup project            ✅ Dashboard UI            🔲 Báo cáo Excel/PDF
+✅ Connector Layer          ✅ Rà soát/Duyệt           🔲 Tìm kiếm nâng cao
+   Telegram Bot (ưu tiên)   ✅ Realtime notify (Sock)  🔲 Quick Review mode
+   Zalo OA (sau)            ✅ Auth & phân quyền        🔲 UAT & Go-live
+✅ OCR Engine               ✅ Tạo record thủ công
+✅ Database & API           ✅ Document Types động
+✅ Document Type Schema
 ```
 
 ---
@@ -75,4 +77,4 @@ Sprint 1 (2 tuần)          Sprint 2 (2 tuần)         Sprint 3 (2 tuần)
 | 🤖 **Telegram Bot** | ✅ Đã implement | Chỉ cần `TELEGRAM_BOT_TOKEN` từ @BotFather |
 | 📱 **Zalo OA** | ⚠️ Đã implement, cần GPKD | Đăng ký OA tại oa.zalo.me |
 | 💬 **Discord** | 🔲 Chưa làm (V1.1) | Thêm 1 connector mới |
-| 🌐 **Web Form** | 🔲 Chưa làm (V1.1) | Upload trực tiếp qua web |
+| 🌐 **Web Form** | ✅ Đã implement | Tạo record thủ công qua web, upload ảnh, OCR async |

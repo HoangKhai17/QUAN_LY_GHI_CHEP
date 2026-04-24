@@ -32,6 +32,8 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
 | Duyệt / Flag record | ✅ | ✅ | ❌ |
 | Tạo user | ✅ | ✅ | ❌ |
 | Deactivate / Reset PW / Đổi role | ✅ | ❌ | ❌ |
+| Tạo / sửa DocumentType & Category | ✅ | ✅ | ❌ |
+| Xóa field DocumentType | ✅ | ❌ | ❌ |
     `,
     contact: { name: 'Internal' },
   },
@@ -625,6 +627,24 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
           { name: 'date_to',     in: 'query', schema: { type: 'string', format: 'date', example: '2026-04-30' }, description: 'Đến ngày (received_at <=, inclusive)' },
           { name: 'page',        in: 'query', schema: { type: 'integer', default: 1 } },
           { name: 'limit',       in: 'query', schema: { type: 'integer', default: 20, maximum: 100 } },
+          {
+            name: 'include_field_values', in: 'query',
+            schema: { type: 'string', enum: ['true','false'] },
+            description: 'Khi `true` — đính kèm `field_values` (object keyed by field_key) vào mỗi record. Dùng cho pivot view theo loại tài liệu.',
+          },
+          {
+            name: 'fv[field_key][op]', in: 'query',
+            schema: { type: 'string' },
+            description: `**Lọc động theo field value** — key theo cú pháp bracket notation.
+
+Ví dụ: \`?fv[amount][gte]=1000000&fv[transfer_date][from]=2026-04-01\`
+
+Toán tử hỗ trợ:
+- \`gte\` / \`lte\` → so sánh số (value_number ≥ / ≤)
+- \`from\` / \`to\` → khoảng ngày (value_date ≥ / ≤)
+- \`like\` → chứa chuỗi (value_text ILIKE %...%)
+- \`eq\` → bằng (auto-detect kiểu)`,
+          },
         ],
         responses: {
           200: { description: 'Danh sách ghi chép', content: { 'application/json': { schema: { $ref: '#/components/schemas/PaginatedRecords' } } } },
@@ -765,10 +785,10 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
       get: {
         tags: ['DocumentTypes'],
         summary: 'Danh sách loại tài liệu',
-        description: 'Trả về tất cả loại tài liệu đang active. Truyền `include_inactive=true` để lấy cả loại đã ẩn.',
+        description: 'Trả về tất cả loại tài liệu đang active. Truyền `include_inactive=true` để lấy cả loại đã ẩn (admin/manager). Response không kèm `fields` array — dùng GET /:id để lấy đầy đủ.',
         security: [{ BearerAuth: [] }],
         parameters: [
-          { name: 'include_inactive', in: 'query', schema: { type: 'string', enum: ['true','false'] }, description: 'Lấy cả loại không active' },
+          { name: 'include_inactive', in: 'query', schema: { type: 'string', enum: ['true','false'] }, description: 'Lấy cả loại không active (chỉ admin/manager)' },
         ],
         responses: {
           200: {
@@ -787,6 +807,39 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
           401: { description: 'Chưa đăng nhập', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
+
+      post: {
+        tags: ['DocumentTypes'],
+        summary: 'Tạo loại tài liệu mới',
+        description: `Quyền: **admin** hoặc **manager**.
+
+\`code\` phải là snake_case duy nhất (chỉ chữ thường, số, gạch dưới, bắt đầu bằng chữ cái). Sau khi tạo, in-memory cache bị invalidate ngay.`,
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['code', 'name'],
+                properties: {
+                  code:                { type: 'string', example: 'hop_dong_mua_ban', description: 'snake_case — duy nhất trong hệ thống' },
+                  name:                { type: 'string', example: 'Hợp đồng mua bán' },
+                  description:         { type: 'string', nullable: true, example: 'Hợp đồng mua bán hàng hóa' },
+                  default_category_id: { type: 'string', format: 'uuid', nullable: true, description: 'Danh mục mặc định tự gán khi AI phân loại vào type này' },
+                  is_active:           { type: 'boolean', default: true },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Tạo thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/DocumentType' } } } },
+          400: { description: 'Thiếu field / code sai format', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          409: { description: 'Code đã tồn tại', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
     },
 
     '/api/document-types/{id}': {
@@ -802,19 +855,52 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
           404: { description: 'Không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
+
+      patch: {
+        tags: ['DocumentTypes'],
+        summary: 'Cập nhật metadata loại tài liệu',
+        description: 'Quyền: **admin** hoặc **manager**. Truyền bất kỳ field nào cần thay đổi. Không thể đổi `code` sau khi tạo. Cache được invalidate ngay.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                description: 'Truyền ít nhất 1 field',
+                properties: {
+                  name:                { type: 'string', example: 'Hợp đồng mua bán (updated)' },
+                  description:         { type: 'string', nullable: true },
+                  is_active:           { type: 'boolean', example: false, description: 'false = ẩn khỏi tab filter và dropdown' },
+                  default_category_id: { type: 'string', format: 'uuid', nullable: true },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Cập nhật thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/DocumentType' } } } },
+          400: { description: 'Không có field nào để update', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Loại tài liệu không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
     },
 
     '/api/document-types/{id}/fields': {
       get: {
         tags: ['DocumentTypes'],
-        summary: 'Chỉ lấy danh sách trường của loại tài liệu',
+        summary: 'Lấy danh sách trường của loại tài liệu',
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
         responses: {
           200: {
-            description: 'Danh sách trường',
+            description: 'Danh sách trường theo display_order',
             content: {
               'application/json': {
                 schema: {
@@ -827,6 +913,103 @@ Các trạng thái cho phép: \`reviewed\`, \`approved\`, \`flagged\`.
             },
           },
           404: { description: 'Không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+
+      post: {
+        tags: ['DocumentTypes'],
+        summary: 'Thêm trường vào loại tài liệu',
+        description: `Quyền: **admin** hoặc **manager**.
+
+\`field_key\` phải duy nhất trong cùng loại tài liệu và chỉ chứa \`[a-zA-Z0-9_]\`. Sau khi thêm, cache bị invalidate — các record mới nhận từ webhook sẽ ngay lập tức sử dụng schema mới.`,
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'UUID của document type' },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['field_key', 'label', 'data_type'],
+                properties: {
+                  field_key:        { type: 'string', example: 'amount', description: 'Khóa nội bộ — [a-zA-Z0-9_]' },
+                  label:            { type: 'string', example: 'Số tiền', description: 'Nhãn hiển thị trên UI' },
+                  data_type:        { type: 'string', enum: ['text','number','date','datetime','boolean','json','money'], example: 'money' },
+                  unit:             { type: 'string', nullable: true, example: 'VND', description: 'Đơn vị đo lường (tùy chọn)' },
+                  is_required:      { type: 'boolean', default: false, description: 'Trường bắt buộc hay không' },
+                  is_filterable:    { type: 'boolean', default: false, description: 'Hiển thị trong filter bar ở pivot view' },
+                  is_reportable:    { type: 'boolean', default: false, description: 'Tính vào báo cáo tài chính' },
+                  aggregation_type: { type: 'string', enum: ['none','sum','avg','count','min','max'], default: 'none', description: 'Hàm tổng hợp dùng trong reports' },
+                  display_order:    { type: 'integer', default: 0, description: 'Thứ tự hiển thị cột (tăng dần)' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Thêm trường thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/DocumentTypeField' } } } },
+          400: { description: 'Thiếu field / data_type không hợp lệ / field_key sai format', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Loại tài liệu không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          409: { description: 'field_key đã tồn tại trong loại tài liệu này', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/document-types/{id}/fields/{fieldId}': {
+      patch: {
+        tags: ['DocumentTypes'],
+        summary: 'Cập nhật định nghĩa trường',
+        description: 'Quyền: **admin** hoặc **manager**. Không thể đổi `field_key` hoặc `data_type` (vì dữ liệu cũ đã lưu theo cột tương ứng). Truyền ít nhất 1 field.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id',      in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'UUID của document type' },
+          { name: 'fieldId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'UUID của field' },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  label:            { type: 'string', example: 'Số tiền chuyển khoản' },
+                  unit:             { type: 'string', nullable: true, example: 'VND' },
+                  is_required:      { type: 'boolean' },
+                  is_filterable:    { type: 'boolean' },
+                  is_reportable:    { type: 'boolean' },
+                  aggregation_type: { type: 'string', enum: ['none','sum','avg','count','min','max'] },
+                  display_order:    { type: 'integer', example: 2 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Cập nhật thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/DocumentTypeField' } } } },
+          400: { description: 'Không có field nào để update', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Field không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+
+      delete: {
+        tags: ['DocumentTypes'],
+        summary: 'Xóa trường khỏi loại tài liệu',
+        description: `Quyền: **admin only**.
+
+⚠️ **Cảnh báo**: Xóa trường sẽ **cascade xóa toàn bộ** \`record_field_values\` liên quan (dữ liệu trích xuất của trường đó trong tất cả record). Hành động không thể hoàn tác.`,
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id',      in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'UUID của document type' },
+          { name: 'fieldId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'UUID của field cần xóa' },
+        ],
+        responses: {
+          200: { description: 'Xóa thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+          403: { description: 'Không đủ quyền (cần admin)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'Field không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
     },

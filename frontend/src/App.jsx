@@ -6,6 +6,7 @@ import AppLayout       from './components/AppLayout'
 import DashboardPage   from './pages/Dashboard'
 import RecordsPage     from './pages/Records'
 import DocTypeViewPage from './pages/DocTypeView'
+import SettingsPage    from './pages/Settings'
 import PlaceholderPage from './pages/Placeholder'
 
 const ANT_THEME = {
@@ -42,7 +43,8 @@ export default function App() {
           <Route path="doc-types"    element={<DocTypeViewPage />} />
           <Route path="quick-review" element={<PlaceholderPage title="Rà soát nhanh" icon="⚡" phase="Phase 6" />} />
           <Route path="search"       element={<PlaceholderPage title="Tìm kiếm"       icon="🔍" phase="Phase 7" />} />
-          <Route path="reports"      element={<PlaceholderPage title="Báo cáo"         icon="📊" phase="Phase 8" />} />
+          <Route path="reports"      element={<PlaceholderPage title="Báo cáo" icon="📊" phase="Phase 8" />} />
+          <Route path="settings"     element={<SettingsPage />} />
           <Route path="*"            element={<Navigate to="/app/dashboard" replace />} />
         </Route>
 

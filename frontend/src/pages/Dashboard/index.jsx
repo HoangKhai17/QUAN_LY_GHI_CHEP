@@ -3,17 +3,31 @@ import { useNavigate } from 'react-router-dom'
 import SummaryCards from '../../components/dashboard/SummaryCards'
 import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
 import StatusBadge from '../../components/records/StatusBadge'
-import PlatformBadge from '../../components/records/PlatformBadge'
-import FlagDialog from '../../components/records/FlagDialog'
 import useDashboardSummary from '../../hooks/useDashboardSummary'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
 import { getReportsSummary } from '../../services/dashboard.service'
-import { updateRecordStatus } from '../../services/record.service'
-import { message } from 'antd'
 import './Dashboard.css'
 
 const WEEK_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+
+const STATUS_META = {
+  new:      { label: 'Mới',          color: '#2563eb', className: 'dashStatusSeg--new' },
+  reviewed: { label: 'Đang rà soát', color: '#d97706', className: 'dashStatusSeg--reviewed' },
+  approved: { label: 'Đã duyệt',     color: '#1f8f4d', className: 'dashStatusSeg--approved' },
+  flagged:  { label: 'Bị flag',      color: '#c53b32', className: 'dashStatusSeg--flagged' },
+}
+
+const PLATFORM_LABELS = {
+  telegram: 'Telegram',
+  zalo:     'Zalo',
+  manual:   'Thủ công',
+}
+
+const DOC_TYPE_COLORS = [
+  '#1f7a43', '#2563eb', '#d97706', '#7c3aed',
+  '#db2777', '#0891b2', '#65a30d', '#dc2626',
+]
 
 function buildLast14Days() {
   const to = new Date()
@@ -25,13 +39,13 @@ function buildLast14Days() {
 }
 
 function fillTimeline(tlRows) {
-  const map = Object.fromEntries((tlRows ?? []).map(r => [r.date, r.count]))
+  const map = Object.fromEntries((tlRows ?? []).map(r => [r.date, Number(r.count) || 0]))
   const result = []
   for (let i = 13; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
     const key = d.toISOString().slice(0, 10)
-    const dow = d.getDay() // 0=Sun…6=Sat
+    const dow = d.getDay()
     result.push({ key, label: WEEK_LABELS[(dow + 6) % 7], count: map[key] ?? 0 })
   }
   return result
@@ -39,233 +53,262 @@ function fillTimeline(tlRows) {
 
 function fmtTime(iso) {
   if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-}
-function initials(name) {
-  return (name ?? '').split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
+  return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
 }
 
-const DOC_TYPE_COLORS = [
-  '#1f7a43', '#2563eb', '#d97706', '#7c3aed',
-  '#db2777', '#0891b2', '#65a30d', '#dc2626',
-]
+function pct(value, total) {
+  if (!total) return 0
+  return Math.round((Number(value || 0) / total) * 100)
+}
+
+function rowCount(rows, key, value) {
+  const row = (rows ?? []).find(r => r[key] === value)
+  return Number(row?.count) || 0
+}
+
+function platformLabel(platform) {
+  return PLATFORM_LABELS[platform] || platform || 'Không rõ'
+}
+
+function extractionLabel(status) {
+  if (status === 'failed') return 'Trích xuất lỗi'
+  if (status === 'needs_review') return 'Cần rà soát dữ liệu'
+  if (status === 'pending') return 'Đang trích xuất'
+  return 'Cần kiểm tra'
+}
+
+function QueueItem({ record, kind, onClick }) {
+  const title = record.note || record.document_type_name || '(không có ghi chú)'
+  const metaParts = [
+    record.sender_name || 'Không rõ người gửi',
+    platformLabel(record.platform),
+    fmtTime(record.received_at),
+  ]
+
+  return (
+    <button className={`dashQueueItem dashQueueItem--${kind}`} onClick={onClick}>
+      <div className="img-ph dashQueueItem__thumb">IMG</div>
+      <div className="dashQueueItem__body">
+        <div className="dashQueueItem__title">{title}</div>
+        <div className="dashQueueItem__meta">
+          {metaParts.join(' · ')}
+          {record.document_type_name && (
+            <>
+              {' · '}
+              <span className="docTypePill">{record.document_type_name}</span>
+            </>
+          )}
+        </div>
+      </div>
+      {kind === 'issue' ? (
+        <span className="dashIssueBadge">{extractionLabel(record.extraction_status)}</span>
+      ) : (
+        <StatusBadge status={record.status} />
+      )}
+    </button>
+  )
+}
+
+function EmptyQueue({ children }) {
+  return <div className="dashQueueEmpty">{children}</div>
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { summary, loading: loadingSummary, error: summaryErr, refetch: refetchSummary } = useDashboardSummary(30_000)
 
-  // Chart / reports state
-  const [chartDays,    setChartDays]    = useState([])
-  const [byPlatform,   setByPlatform]   = useState([])
-  const [byDocType,    setByDocType]    = useState([])
+  const [chartDays,  setChartDays]  = useState([])
+  const [byPlatform, setByPlatform] = useState([])
+  const [byDocType,  setByDocType]  = useState([])
+  const [byStatus,   setByStatus]   = useState([])
+  const [byCategory, setByCategory] = useState([])
 
   useEffect(() => {
     getReportsSummary(buildLast14Days()).then(data => {
       setChartDays(fillTimeline(data.timeline))
       setByPlatform(data.by_platform ?? [])
       setByDocType((data.by_document_type ?? []).slice(0, 5))
+      setByStatus(data.by_status ?? [])
+      setByCategory((data.by_category ?? []).slice(0, 5))
     }).catch(() => {
-      // fallback: empty chart (no mock)
       setChartDays(fillTimeline([]))
+      setByPlatform([])
+      setByDocType([])
+      setByStatus([])
+      setByCategory([])
     })
   }, [])
 
-  const chartMax = Math.max(...chartDays.map(d => d.count), 1)
+  const pendingQuery = useRecordsQuery({ status: 'new', sort_order: 'asc' }, 4)
+  const flaggedQuery = useRecordsQuery({ status: 'flagged', sort_order: 'asc' }, 3)
+  const failedQuery  = useRecordsQuery({ extraction_status: 'failed', sort_order: 'asc' }, 2)
+  const reviewQuery  = useRecordsQuery({ extraction_status: 'needs_review', sort_order: 'asc' }, 2)
 
-  // Pending panel — status=new, limit 4
-  const { records: pendingRecs, loading: loadingPending } = useRecordsQuery({ status: 'new' }, 4)
+  const issueRecords = [...failedQuery.records, ...reviewQuery.records].slice(0, 4)
+  const loadingIssues = failedQuery.loading || reviewQuery.loading
 
-  // Recent records table — all, limit 6
-  const {
-    records, loading: loadingRecords,
-    updateRecord, removeRecord,
-  } = useRecordsQuery({}, 6)
-
-  // Detail drawer
   const { record: detailRec, loading: loadingDetail, openById, close: closeDetail } = useRecordDetail()
   const [detailOpen, setDetailOpen] = useState(false)
-
-  // Flag quick-action on pending panel
-  const [flagOpen,    setFlagOpen]    = useState(false)
-  const [flagTarget,  setFlagTarget]  = useState(null)
-  const [flagLoading, setFlagLoading] = useState(false)
-
-  async function handleFlagConfirm(reason) {
-    setFlagLoading(true)
-    try {
-      await updateRecordStatus(flagTarget.id, 'flagged', reason)
-      updateRecord(flagTarget.id, { status: 'flagged', flag_reason: reason })
-      message.success('Đã gắn cờ')
-      setFlagOpen(false)
-      setFlagTarget(null)
-    } catch {
-      message.error('Gắn cờ thất bại')
-    } finally {
-      setFlagLoading(false)
-    }
-  }
 
   function openDetail(record) {
     openById(record.id)
     setDetailOpen(true)
   }
 
-  // Platform percentage helper
-  const totalPlatform = byPlatform.reduce((s, r) => s + Number(r.count), 0)
-  function platformPct(name) {
-    const row = byPlatform.find(r => r.platform === name)
-    if (!row || !totalPlatform) return '—'
-    return `${Math.round((Number(row.count) / totalPlatform) * 100)}%`
+  function refetchAll() {
+    refetchSummary()
+    pendingQuery.refetch()
+    flaggedQuery.refetch()
+    failedQuery.refetch()
+    reviewQuery.refetch()
   }
+
+  const chartMax = Math.max(...chartDays.map(d => d.count), 1)
+  const total14Days = chartDays.reduce((s, d) => s + d.count, 0)
+  const totalPlatform = byPlatform.reduce((s, r) => s + Number(r.count || 0), 0)
+  const totalStatus = byStatus.reduce((s, r) => s + Number(r.count || 0), 0)
+  const maxDocType = Math.max(...byDocType.map(r => Number(r.count) || 0), 1)
+  const maxCategory = Math.max(...byCategory.map(r => Number(r.count) || 0), 1)
+  const pendingTotal = summary?.pending_review ?? Number(pendingQuery.total || 0)
+  const flaggedTotal = summary?.total_flagged ?? Number(flaggedQuery.total || 0)
+  const issueTotal = Number(failedQuery.total || 0) + Number(reviewQuery.total || 0)
+  const weekApprovalPct = summary?.this_week?.total
+    ? pct(summary.this_week.approved, summary.this_week.total)
+    : 0
 
   return (
     <div className="dashPage">
-      {/* ── Toolbar ── */}
       <div className="dashToolbar">
         <div>
-          <div className="dashToolbar__title">Tổng quan</div>
+          <div className="dashToolbar__title">Tổng quan vận hành</div>
           <div className="dashToolbar__sub">
             {new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
-            {summaryErr ? ' · ⚠ Không tải được dữ liệu' : ''}
+            {summaryErr ? ' · Không tải được dữ liệu' : ''}
           </div>
         </div>
         <div className="dashToolbar__actions">
           {summaryErr && (
-            <button className="bbo-btn bbo-btn-sm" onClick={refetchSummary}>↻ Thử lại</button>
+            <button className="bbo-btn bbo-btn-sm" onClick={refetchSummary}>Thử lại</button>
           )}
+          <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/records?status=new')}>
+            Bắt đầu rà soát →
+          </button>
           <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/records')}>
             Xem tất cả record →
           </button>
         </div>
       </div>
 
-      {/* ── Summary cards ── */}
       <SummaryCards summary={summary} loading={loadingSummary} />
 
-      {/* ── Two-panel row ── */}
-      <div className="dashPanels">
-        {/* Activity chart */}
+      <div className="dashMainGrid">
         <div className="bbo-card dashChartCard">
           <div className="bbo-card-header">
-            <div className="bbo-card-title">Hoạt động tiếp nhận (14 ngày)</div>
+            <div>
+              <div className="bbo-card-title">Sức tải tiếp nhận</div>
+              <div className="dashCardSub">14 ngày gần nhất · {total14Days.toLocaleString('vi-VN')} record</div>
+            </div>
           </div>
           <div className="bbo-card-body">
             <div className="dashChart">
               <div className="dashChart__bars">
-                {chartDays.length === 0
-                  ? Array.from({ length: 14 }).map((_, i) => (
-                      <div key={i} className="dashChart__col">
-                        <div className="dashChart__bar" style={{ height: '4px' }} />
-                      </div>
-                    ))
-                  : chartDays.map((d, i) => {
-                      const isLast = i === chartDays.length - 1
-                      const isPrev = i === chartDays.length - 2
-                      return (
-                        <div key={d.key} className="dashChart__col" title={`${d.key}: ${d.count} record`}>
-                          <div
-                            className={`dashChart__bar${isLast ? ' dashChart__bar--primary' : isPrev ? ' dashChart__bar--lime' : ''}`}
-                            style={{ height: `${Math.max(4, Math.round((d.count / chartMax) * 210))}px` }}
-                          />
-                        </div>
-                      )
-                    })
-                }
+                {(chartDays.length > 0 ? chartDays : fillTimeline([])).map((d, i) => {
+                  const isToday = i === 13
+                  const height = Math.max(8, Math.round((d.count / chartMax) * 164))
+                  return (
+                    <div key={d.key} className="dashChart__col" title={`${d.key}: ${d.count} record`}>
+                      <div className="dashChart__value">{d.count > 0 ? d.count : ''}</div>
+                      <div
+                        className={`dashChart__bar${isToday ? ' dashChart__bar--primary' : ''}`}
+                        style={{ height: `${height}px` }}
+                      />
+                    </div>
+                  )
+                })}
               </div>
               <div className="dashChart__labels">
-                {(chartDays.length > 0 ? chartDays : Array.from({ length: 14 }, (_, i) => ({ label: WEEK_LABELS[i % 7] }))).map((d, i) => (
-                  <div key={i}>{d.label}</div>
+                {(chartDays.length > 0 ? chartDays : fillTimeline([])).map(d => (
+                  <div key={d.key}>{d.label}</div>
                 ))}
               </div>
             </div>
 
-            <div className="dashChart__summary">
-              <div>
-                <div className="dashChart__summary-label">Telegram</div>
-                <div className="dashChart__summary-value">{platformPct('telegram')}</div>
-              </div>
-              <div>
-                <div className="dashChart__summary-label">Zalo</div>
-                <div className="dashChart__summary-value">{platformPct('zalo')}</div>
-              </div>
-              <div>
-                <div className="dashChart__summary-label">Tổng 14 ngày</div>
-                <div className="dashChart__summary-value">
-                  {chartDays.reduce((s, d) => s + d.count, 0)}
-                </div>
-              </div>
-              <div>
-                <div className="dashChart__summary-label">Tỷ lệ duyệt</div>
-                <div className="dashChart__summary-value dashChart__summary-value--accent">
-                  {summary ? `${Math.round(((summary.today?.approved ?? 0) / Math.max(summary.today?.total ?? 1, 1)) * 100)}%` : '—'}
-                </div>
+            <div className="dashMetricStrip">
+              {['telegram', 'zalo', 'manual'].map(platform => {
+                const count = rowCount(byPlatform, 'platform', platform)
+                return (
+                  <div key={platform} className="dashMetricStrip__item">
+                    <span className="dashMetricStrip__label">{platformLabel(platform)}</span>
+                    <span className="dashMetricStrip__value">{pct(count, totalPlatform)}%</span>
+                    <span className="dashMetricStrip__sub">{count.toLocaleString('vi-VN')} record</span>
+                  </div>
+                )
+              })}
+              <div className="dashMetricStrip__item">
+                <span className="dashMetricStrip__label">Duyệt tuần này</span>
+                <span className="dashMetricStrip__value dashMetricStrip__value--accent">{weekApprovalPct}%</span>
+                <span className="dashMetricStrip__sub">{summary?.this_week?.approved ?? 0}/{summary?.this_week?.total ?? 0} record</span>
               </div>
             </div>
-
-            {/* Document type breakdown */}
-            {byDocType.length > 0 && (
-              <div className="dashDocTypes">
-                <div className="dashDocTypes__title">Theo loại tài liệu (14 ngày)</div>
-                <div className="dashDocTypes__list">
-                  {byDocType.map((dt, i) => (
-                    <div key={dt.code} className="dashDocTypes__item">
-                      <span className="dashDocTypes__dot" style={{ background: DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length] }} />
-                      <span className="dashDocTypes__name">{dt.name || dt.code}</span>
-                      <span className="dashDocTypes__count">{dt.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Pending panel */}
-        <div className="bbo-card">
+        <div className="bbo-card dashWorkCard">
           <div className="bbo-card-header">
-            <div className="bbo-card-title">Chờ rà soát</div>
+            <div>
+              <div className="bbo-card-title">Việc cần xử lý</div>
+              <div className="dashCardSub">Ưu tiên record cũ nhất và lỗi trích xuất</div>
+            </div>
             <a href="/app/records?status=new" className="dashPendingLink"
                onClick={e => { e.preventDefault(); navigate('/app/records?status=new') }}>
-              Xem tất cả →
+              Xem hàng chờ →
             </a>
           </div>
-          <div className="bbo-card-body">
-            <div className="dashPendingSummary">
-              {loadingSummary ? '…' : `${summary?.pending_review ?? '—'} record chờ xử lý · ưu tiên cao nhất`}
+          <div className="bbo-card-body dashQueue">
+            <div className="dashQueueSection">
+              <div className="dashQueueSection__head">
+                <span>Chờ rà soát</span>
+                <strong>{pendingTotal}</strong>
+              </div>
+              {pendingQuery.loading && [1, 2].map(i => <div key={i} className="dashQueueSkeleton skeleton" />)}
+              {!pendingQuery.loading && pendingQuery.records.map(r => (
+                <QueueItem key={r.id} record={r} kind="pending" onClick={() => openDetail(r)} />
+              ))}
+              {!pendingQuery.loading && pendingQuery.records.length === 0 && (
+                <EmptyQueue>Không có record chờ rà soát</EmptyQueue>
+              )}
             </div>
 
-            {loadingPending && [1, 2, 3].map(i => (
-              <div key={i} className="pending-item">
-                <div className="skeleton" style={{ width: 42, height: 42, borderRadius: 6, flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div className="skeleton" style={{ width: '70%', height: 13, marginBottom: 6 }} />
-                  <div className="skeleton" style={{ width: '50%', height: 11 }} />
-                </div>
+            <div className="dashQueueSection">
+              <div className="dashQueueSection__head">
+                <span>Bị flag</span>
+                <strong>{flaggedTotal}</strong>
               </div>
-            ))}
+              {flaggedQuery.loading && <div className="dashQueueSkeleton skeleton" />}
+              {!flaggedQuery.loading && flaggedQuery.records.map(r => (
+                <QueueItem key={r.id} record={r} kind="flagged" onClick={() => openDetail(r)} />
+              ))}
+              {!flaggedQuery.loading && flaggedQuery.records.length === 0 && (
+                <EmptyQueue>Không có record bị flag</EmptyQueue>
+              )}
+            </div>
 
-            {!loadingPending && pendingRecs.slice(0, 4).map(r => (
-              <div key={r.id} className="pending-item" style={{ cursor: 'pointer' }} onClick={() => openDetail(r)}>
-                <div className="img-ph pending-item__thumb">IMG</div>
-                <div className="pending-item__body">
-                  <div className="pending-item__title">{r.note || r.document_type_name || '(không có ghi chú)'}</div>
-                  <div className="pending-item__meta">
-                    {r.sender_name} · {r.platform} · {fmtTime(r.received_at)}
-                    {r.document_type_name && <> · <span className="docTypePill">{r.document_type_name}</span></>}
-                  </div>
-                </div>
-                <StatusBadge status={r.status} />
+            <div className="dashQueueSection">
+              <div className="dashQueueSection__head">
+                <span>Lỗi trích xuất</span>
+                <strong>{issueTotal}</strong>
               </div>
-            ))}
-
-            {!loadingPending && pendingRecs.length === 0 && (
-              <div className="dashPendingEmpty">✅ Đã xử lý hết — không có record chờ</div>
-            )}
+              {loadingIssues && <div className="dashQueueSkeleton skeleton" />}
+              {!loadingIssues && issueRecords.map(r => (
+                <QueueItem key={r.id} record={r} kind="issue" onClick={() => openDetail(r)} />
+              ))}
+              {!loadingIssues && issueRecords.length === 0 && (
+                <EmptyQueue>Không có lỗi trích xuất cần xử lý</EmptyQueue>
+              )}
+            </div>
 
             <button
               className="bbo-btn bbo-btn-md bbo-btn-primary bbo-btn-full"
-              style={{ marginTop: 12 }}
               onClick={() => navigate('/app/records?status=new')}
             >
               Bắt đầu rà soát nhanh →
@@ -274,107 +317,121 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Recent records table ── */}
-      <div className="bbo-card">
-        <div className="bbo-card-header">
-          <div className="bbo-card-title">Record mới nhất</div>
-          <div className="dashTableToolbar">
-            <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/records')}>
-              Xem đầy đủ →
-            </button>
+      <div className="dashInsightGrid">
+        <div className="bbo-card">
+          <div className="bbo-card-header">
+            <div>
+              <div className="bbo-card-title">Pipeline trạng thái</div>
+              <div className="dashCardSub">Tỷ lệ record trong 14 ngày gần nhất</div>
+            </div>
+          </div>
+          <div className="bbo-card-body">
+            <div className="dashStatusBar">
+              {Object.entries(STATUS_META).map(([status, meta]) => {
+                const count = rowCount(byStatus, 'status', status)
+                const width = Math.max(count ? pct(count, totalStatus) : 0, count ? 6 : 0)
+                return (
+                  <div
+                    key={status}
+                    className={`dashStatusSeg ${meta.className}`}
+                    style={{ width: `${width}%` }}
+                    title={`${meta.label}: ${count} record`}
+                  />
+                )
+              })}
+            </div>
+            <div className="dashStatusLegend">
+              {Object.entries(STATUS_META).map(([status, meta]) => {
+                const count = rowCount(byStatus, 'status', status)
+                return (
+                  <div key={status} className="dashStatusLegend__item">
+                    <span style={{ background: meta.color }} />
+                    <div>
+                      <strong>{count.toLocaleString('vi-VN')}</strong>
+                      <em>{meta.label} · {pct(count, totalStatus)}%</em>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 
-        <div className="rec-table-wrap">
-          <div className="rec-table-head dashTableGrid">
-            <div />
-            <div>Mã record</div>
-            <div>Ghi chú / Loại tài liệu</div>
-            <div>Người gửi</div>
-            <div>Nền tảng</div>
-            <div>Thời gian</div>
-            <div>Trạng thái</div>
-            <div />
+        <div className="bbo-card">
+          <div className="bbo-card-header">
+            <div>
+              <div className="bbo-card-title">Top loại tài liệu</div>
+              <div className="dashCardSub">Nhóm phát sinh nhiều nhất trong kỳ</div>
+            </div>
           </div>
-
-          {loadingRecords && Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rec-table-row dashTableGrid">
-              <div className="skeleton" style={{ width: 42, height: 42, borderRadius: 6 }} />
-              <div className="skeleton" style={{ width: 72, height: 13 }} />
-              <div className="skeleton" style={{ width: '80%', height: 13 }} />
-              <div className="skeleton" style={{ width: 90, height: 13 }} />
-              <div className="skeleton" style={{ width: 72, height: 22, borderRadius: 999 }} />
-              <div className="skeleton" style={{ width: 48, height: 13 }} />
-              <div className="skeleton" style={{ width: 72, height: 22, borderRadius: 999 }} />
-              <div />
-            </div>
-          ))}
-
-          {!loadingRecords && records.map(r => (
-            <div key={r.id} className="rec-table-row dashTableGrid" onClick={() => openDetail(r)}>
-              <div className="img-ph rec-table__thumb">IMG</div>
-              <div className="rec-table__code">{r.code ?? r.id?.slice(-6)?.toUpperCase()}</div>
-              <div className="recListNoteCell">
-                <div className="rec-table__note">{r.note || r.document_type_name || '(không có ghi chú)'}</div>
-                {r.document_type_name && (
-                  <div className="recListSub">{r.document_type_name}
-                    {r.extraction_status === 'needs_review' && <span className="exSt exSt--warn"> · Cần rà soát</span>}
-                    {r.extraction_status === 'failed' && <span className="exSt exSt--err"> · Trích xuất lỗi</span>}
+          <div className="bbo-card-body">
+            <div className="dashRankList">
+              {byDocType.length > 0 ? byDocType.map((dt, i) => {
+                const count = Number(dt.count) || 0
+                return (
+                  <div key={dt.code || i} className="dashRankItem">
+                    <div className="dashRankItem__head">
+                      <span>
+                        <i style={{ background: DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length] }} />
+                        {dt.name || dt.code || 'Chưa phân loại'}
+                      </span>
+                      <strong>{count.toLocaleString('vi-VN')}</strong>
+                    </div>
+                    <div className="dashRankItem__track">
+                      <div style={{ width: `${Math.max(4, pct(count, maxDocType))}%`, background: DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length] }} />
+                    </div>
                   </div>
-                )}
-              </div>
-              <div className="rec-table__sender">
-                <div className="avatar-sm">{initials(r.sender_name)}</div>
-                <span className="rec-table__sender-name">{r.sender_name ?? '—'}</span>
-              </div>
-              <div><PlatformBadge platform={r.platform} /></div>
-              <div className="rec-table__time">{fmtTime(r.received_at)}</div>
-              <div><StatusBadge status={r.status} /></div>
-              <div className="rec-table__more">⋯</div>
+                )
+              }) : <EmptyQueue>Chưa có dữ liệu loại tài liệu</EmptyQueue>}
             </div>
-          ))}
+          </div>
+        </div>
 
-          {!loadingRecords && records.length === 0 && (
-            <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink3)', fontSize: 13 }}>
-              Chưa có record nào — gửi ảnh qua Telegram/Zalo để bắt đầu
+        <div className="bbo-card">
+          <div className="bbo-card-header">
+            <div>
+              <div className="bbo-card-title">Top danh mục</div>
+              <div className="dashCardSub">Phân bổ theo nhóm chi phí / nghiệp vụ</div>
             </div>
-          )}
-
-          <div className="dashTableFoot">
-            <span>Hiển thị {records.length} record gần nhất</span>
-            <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/records')}>
-              Xem tất cả →
-            </button>
+          </div>
+          <div className="bbo-card-body">
+            <div className="dashRankList">
+              {byCategory.length > 0 ? byCategory.map((cat, i) => {
+                const count = Number(cat.count) || 0
+                const color = cat.color || DOC_TYPE_COLORS[i % DOC_TYPE_COLORS.length]
+                return (
+                  <div key={cat.category_name || i} className="dashRankItem">
+                    <div className="dashRankItem__head">
+                      <span>
+                        <i style={{ background: color }} />
+                        {cat.category_name || 'Chưa gán danh mục'}
+                      </span>
+                      <strong>{count.toLocaleString('vi-VN')}</strong>
+                    </div>
+                    <div className="dashRankItem__track">
+                      <div style={{ width: `${Math.max(4, pct(count, maxCategory))}%`, background: color }} />
+                    </div>
+                  </div>
+                )
+              }) : <EmptyQueue>Chưa có dữ liệu danh mục</EmptyQueue>}
+            </div>
           </div>
         </div>
       </div>
 
       <div style={{ height: 28 }} />
 
-      {/* Detail drawer */}
       <RecordDetailDrawer
         open={detailOpen}
         record={detailRec}
         loading={loadingDetail}
         onClose={() => { setDetailOpen(false); closeDetail() }}
-        onStatusChange={(id, patch) => {
-          updateRecord(id, patch)
-          refetchSummary()
-        }}
-        onDelete={id => {
-          removeRecord(id)
+        onStatusChange={refetchAll}
+        onDelete={() => {
           setDetailOpen(false)
           closeDetail()
-          refetchSummary()
+          refetchAll()
         }}
-      />
-
-      {/* Flag dialog for pending panel quick-action */}
-      <FlagDialog
-        open={flagOpen}
-        loading={flagLoading}
-        onCancel={() => { setFlagOpen(false); setFlagTarget(null) }}
-        onConfirm={handleFlagConfirm}
       />
     </div>
   )

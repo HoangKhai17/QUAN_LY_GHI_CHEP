@@ -3,12 +3,10 @@ import './SummaryCards.css'
 const CARDS = [
   {
     key:    'today_total',
-    label:  'Record mới hôm nay',
+    label:  'Tiếp nhận hôm nay',
     accent: 'primary',
-    hint:   'tổng nhận trong ngày',
-    // today.total = tất cả records nhận hôm nay (mọi trạng thái)
+    hint:   'tổng record nhận trong ngày',
     getValue: s => s?.today?.total ?? 0,
-    // Delta: bao nhiêu đang còn chờ xử lý trong số đó
     getDelta: s => {
       const pending = s?.today?.new
       return pending != null ? `${pending} chưa xử lý` : null
@@ -17,22 +15,19 @@ const CARDS = [
   },
   {
     key:    'pending',
-    label:  'Đang chờ rà soát',
+    label:  'Đang chờ xử lý',
     accent: 'warning',
-    hint:   'tổng chưa được xử lý',
-    // pending_review = tổng records status='new' (toàn bộ, không giới hạn hôm nay)
+    hint:   'record mới chưa được rà soát',
     getValue: s => s?.pending_review ?? 0,
     getDelta: () => null,
     deltaUp: false,
   },
   {
     key:    'approved',
-    label:  'Đã duyệt',
+    label:  'Duyệt tuần này',
     accent: 'lime',
-    hint:   'đã duyệt trong tuần này',
-    // this_week.approved = records được approve trong tuần (không phải tổng tuần)
+    hint:   'record đã duyệt trong tuần',
     getValue: s => s?.this_week?.approved ?? 0,
-    // Delta: bao nhiêu đã duyệt hôm nay
     getDelta: s => {
       const todayApproved = s?.today?.approved
       return todayApproved != null ? `${todayApproved} hôm nay` : null
@@ -41,12 +36,10 @@ const CARDS = [
   },
   {
     key:    'flagged',
-    label:  'Bị flag / lỗi',
+    label:  'Cần kiểm tra',
     accent: 'danger',
-    hint:   'tổng đang cần kiểm tra',
-    // total_flagged = tổng records status='flagged' (toàn bộ, không giới hạn hôm nay)
+    hint:   'record bị flag đang tồn đọng',
     getValue: s => s?.total_flagged ?? 0,
-    // Delta: bao nhiêu bị flag hôm nay
     getDelta: s => {
       const todayFlagged = s?.today?.flagged
       return todayFlagged > 0 ? `${todayFlagged} hôm nay` : null

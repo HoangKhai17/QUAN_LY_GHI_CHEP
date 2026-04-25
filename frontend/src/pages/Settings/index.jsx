@@ -1076,7 +1076,7 @@ function ApiKeyField({ label, desc, settingKey, isSecret, info, onSave, onClear 
             <span className={`apikey-value${!is_set ? ' apikey-value--unset' : ''}`}>
               {is_set ? (isSecret ? '●●●●●●●●●●●●' : info.value) : '— chưa cài đặt —'}
             </span>
-            <button className="bbo-btn bbo-btn-sm" onClick={() => setEditing(true)}>
+            <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={() => setEditing(true)}>
               {is_set ? 'Cập nhật' : 'Thiết lập'}
             </button>
             {is_set && source === 'db' && (

@@ -91,7 +91,68 @@
 
 /* ── Advanced filter card ────────────────────────────────────────────────── */
 .recFilterCard {
-  padding: 18px 20px 14px !important;
+  padding: 0 !important;
+}
+
+.recFilterHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  cursor: default;
+}
+.recFilterHeader__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.recFilterHeader__title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--ink3);
+}
+.recFilterHeader__badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--primary-tint);
+  color: var(--primary);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.recFilterHeader__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1.5px solid var(--line2);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink3);
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.recFilterHeader__toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-tint);
+}
+
+.recFilterBody {
+  padding: 0 20px 14px;
+  overflow: hidden;
+  max-height: 800px;
+  opacity: 1;
+  transition: max-height 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.2s, padding 0.22s;
+}
+.recFilterBody--collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  pointer-events: none;
 }
 
 .recFilterGrid {

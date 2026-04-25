@@ -522,6 +522,16 @@
 .footer .sep     { margin: 0 8px; color: var(--line); }
 .footer .version { font-family: 'JetBrains Mono', monospace; color: var(--ink-3); }
 
+/* ── Custom scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar               { width: 7px; height: 7px; }
+::-webkit-scrollbar-track         { background: var(--line-2); border-radius: 99px; }
+::-webkit-scrollbar-thumb         { background: linear-gradient(180deg, var(--light-green) 0%, var(--primary) 100%); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover   { background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%); }
+::-webkit-scrollbar-corner        { background: transparent; }
+
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--primary) var(--line-2); }
+
 /* ── Fullscreen mode ─────────────────────────────────────────────────────────── */
 body.app-fullscreen .sidebar  { display: none; }
 body.app-fullscreen .header   { display: none; }
@@ -529,3 +539,4 @@ body.app-fullscreen .footer   { display: none; }
 body.app-fullscreen .mainArea { margin-left: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; }
 body.app-fullscreen .content  { padding-bottom: 0; }
 body.app-fullscreen .recPage  { padding: 20px 24px; }
+body.app-fullscreen .dtv-page { padding: 20px 24px; }

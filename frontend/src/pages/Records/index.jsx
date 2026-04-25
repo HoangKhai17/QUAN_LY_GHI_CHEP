@@ -377,7 +377,8 @@ export default function RecordsPage() {
   const needCount     = stats.new + stats.reviewed
   const approvedPct   = stats.total > 0 ? Math.round(stats.approved / stats.total * 100) : 0
 
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFullscreen,     setIsFullscreen]     = useState(false)
+  const [filterCollapsed,  setFilterCollapsed]  = useState(false)
 
   useEffect(() => {
     const onFsChange = () => {
@@ -442,6 +443,28 @@ export default function RecordsPage() {
 
       {/* ── Advanced filter bar ── */}
       <div className="recFilterCard bbo-card">
+        <div className="recFilterHeader">
+          <div className="recFilterHeader__left">
+            <span className="recFilterHeader__title">Bộ lọc</span>
+            {activeFilters.length > 0 && (
+              <span className="recFilterHeader__badge">{activeFilters.length} đang bật</span>
+            )}
+          </div>
+          <button
+            className="recFilterHeader__toggle"
+            onClick={() => setFilterCollapsed(c => !c)}
+            title={filterCollapsed ? 'Mở rộng bộ lọc' : 'Thu gọn bộ lọc'}
+          >
+            <svg
+              width="14" height="14" viewBox="0 0 14 14" fill="none"
+              style={{ transform: filterCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.22s' }}
+            >
+              <path d="M2 5l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div className={`recFilterBody${filterCollapsed ? ' recFilterBody--collapsed' : ''}`}>
         <div className="recFilterGrid">
 
           {/* Kênh tiếp nhận — multi-select */}
@@ -636,6 +659,7 @@ export default function RecordsPage() {
             ))}
           </div>
         )}
+        </div>{/* /recFilterBody */}
       </div>
 
       {/* ── Record list ── */}

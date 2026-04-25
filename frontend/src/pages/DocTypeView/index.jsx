@@ -6,7 +6,7 @@ import StatusBadge from '../../components/records/StatusBadge'
 import PlatformBadge from '../../components/records/PlatformBadge'
 import FlagDialog from '../../components/records/FlagDialog'
 import useRecordDetail from '../../hooks/useRecordDetail'
-import { getDocumentTypes, updateRecordStatus, deleteRecord, getRecordStats, getCategories } from '../../services/record.service'
+import { getDocumentTypes, updateRecordStatus, deleteRecord, getRecordStats, getCategories, getRecordYears } from '../../services/record.service'
 import { getSocket } from '../../services/socket'
 import notify from '../../utils/notify'
 import api from '../../services/api'
@@ -111,9 +111,34 @@ const PLATFORM_OPTIONS = [
   { value: 'manual',   label: 'Thủ công' },
 ]
 
-const EMPTY_STATIC = {
-  search: '', platform: [], status: [], category_id: [],
-  date_from: '', date_to: '', sort_order: 'desc',
+const MONTH_OPTIONS = [
+  { value: '', label: 'Cả năm' },
+  ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `Tháng ${i + 1}` })),
+]
+
+function getDefaultStatic() {
+  const now = new Date()
+  return {
+    search: '', platform: [], status: [], category_id: [],
+    period_year:  String(now.getFullYear()),
+    period_month: String(now.getMonth() + 1),
+    date_from: '', date_to: '',
+    sort_order: 'desc',
+  }
+}
+
+function periodToDateRange(year, month) {
+  if (!year) return { date_from: '', date_to: '' }
+  if (!month) return { date_from: `${year}-01-01`, date_to: `${year}-12-31` }
+  const y = parseInt(year), m = parseInt(month)
+  const mm = String(m).padStart(2, '0')
+  const lastDay = new Date(y, m, 0).getDate()
+  return { date_from: `${year}-${mm}-01`, date_to: `${year}-${mm}-${lastDay}` }
+}
+
+function getInitialStaticFilters() {
+  const d = getDefaultStatic()
+  return { ...d, ...periodToDateRange(d.period_year, d.period_month) }
 }
 
 // ── Multi-select dropdown ──────────────────────────────────────────────────────
@@ -206,13 +231,16 @@ export default function DocTypeViewPage() {
   const [pendingFilters, setPendingFilters] = useState({})
 
   // Static standard filters
-  const [categories,    setCategories]    = useState([])
-  const [staticFilters, setStaticFilters] = useState(EMPTY_STATIC)
-  const [staticDraft,   setStaticDraft]   = useState(EMPTY_STATIC)
+  const [categories,     setCategories]     = useState([])
+  const [staticFilters,  setStaticFilters]  = useState(getInitialStaticFilters)
+  const [staticDraft,    setStaticDraft]    = useState(getDefaultStatic)
+  const [availableYears, setAvailableYears] = useState([])
 
   // Stats cards
-  const [stats, setStats] = useState({ total: 0, new: 0, reviewed: 0, approved: 0, flagged: 0 })
+  const [stats, setStats]             = useState({ total: 0, new: 0, reviewed: 0, approved: 0, flagged: 0 })
   const [aggregations, setAggregations] = useState([])
+  const [isFullscreen,    setIsFullscreen]    = useState(false)
+  const [filterCollapsed, setFilterCollapsed] = useState(false)
 
   // Column visibility
   const [visibleCols,  setVisibleCols]  = useState(new Set())
@@ -247,11 +275,24 @@ export default function DocTypeViewPage() {
     })
   }, [])
 
-  // ── Load categories for filter dropdown ──────────────────────────────────────
+  // ── Load categories + years for filter dropdowns ─────────────────────────────
   useEffect(() => {
-    getCategories().then(res => {
-      setCategories(res?.data ?? [])
-    }).catch(() => {})
+    getCategories().then(res => setCategories(res?.data ?? [])).catch(() => {})
+    getRecordYears().then(r => setAvailableYears(r.data ?? [])).catch(() => {})
+  }, [])
+
+  // ── Fullscreen ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const onFsChange = () => {
+      const active = !!document.fullscreenElement
+      setIsFullscreen(active)
+      document.body.classList.toggle('app-fullscreen', active)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.body.classList.remove('app-fullscreen')
+    }
   }, [])
 
   // ── When selected type changes: load field defs, reset state ─────────────────
@@ -261,8 +302,8 @@ export default function DocTypeViewPage() {
     setFieldDefs([])
     setFilters({})
     setPendingFilters({})
-    setStaticFilters(EMPTY_STATIC)
-    setStaticDraft(EMPTY_STATIC)
+    setStaticFilters(getInitialStaticFilters())
+    setStaticDraft(getDefaultStatic())
     setPage(1)
     setRecords([])
     setAggregations([])
@@ -591,17 +632,26 @@ export default function DocTypeViewPage() {
 
   // ── Filter actions ───────────────────────────────────────────────────────────
   function applyFilters() {
+    const { date_from, date_to } = (staticDraft.date_from || staticDraft.date_to)
+      ? { date_from: staticDraft.date_from, date_to: staticDraft.date_to }
+      : periodToDateRange(staticDraft.period_year, staticDraft.period_month)
     setFilters(pendingFilters)
-    setStaticFilters(staticDraft)
+    setStaticFilters({ ...staticDraft, date_from, date_to })
     setPage(1)
   }
 
   function clearFilters() {
+    const d = getDefaultStatic()
     setPendingFilters({})
     setFilters({})
-    setStaticDraft(EMPTY_STATIC)
-    setStaticFilters(EMPTY_STATIC)
+    setStaticDraft(d)
+    setStaticFilters(getInitialStaticFilters())
     setPage(1)
+  }
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen()
+    else document.exitFullscreen()
   }
 
   function openDetail(r) { openById(r.id); setDetailOpen(true) }
@@ -654,7 +704,25 @@ export default function DocTypeViewPage() {
           </div>
         </div>
 
-        <div className="dtv-type-selector">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            className="bbo-btn bbo-btn-sm bbo-btn-ghost dtv-toolbar__fsBtn"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Thoát toàn màn hình (ESC)' : 'Xem toàn màn hình'}
+          >
+            {isFullscreen ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                <path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+              </svg>
+            )}
+          </button>
+          <div className="dtv-type-selector">
           <label className="dtv-type-selector__label">Loại tài liệu</label>
           <select
             className="dtv-type-selector__select"
@@ -666,58 +734,35 @@ export default function DocTypeViewPage() {
               <option key={dt.code} value={dt.code}>{dt.name}</option>
             ))}
           </select>
+          </div>
         </div>
       </div>
-
-      {/* ── Stats cards ── */}
-      <div className="dtv-stats">
-        <div className="dtv-stat-card">
-          <div className="dtv-stat-card__label">Tổng loại này</div>
-          <div className="dtv-stat-card__value">{stats.total.toLocaleString()}</div>
-          <div className="dtv-stat-card__sub">{selectedType?.name ?? '—'}</div>
-        </div>
-        <div className="dtv-stat-card dtv-stat-card--need">
-          <div className="dtv-stat-card__label">Cần xử lý</div>
-          <div className="dtv-stat-card__value">{needCount.toLocaleString()}</div>
-          <div className="dtv-stat-card__sub">{stats.new} mới · {stats.reviewed} rà soát</div>
-        </div>
-        <div className="dtv-stat-card dtv-stat-card--approved">
-          <div className="dtv-stat-card__label">Đã duyệt</div>
-          <div className="dtv-stat-card__value">{stats.approved.toLocaleString()}</div>
-          <div className="dtv-stat-card__sub">Tỷ lệ {approvedPct}%</div>
-        </div>
-        <div className="dtv-stat-card dtv-stat-card--flag">
-          <div className="dtv-stat-card__label">Bị flag</div>
-          <div className="dtv-stat-card__value">{stats.flagged.toLocaleString()}</div>
-          <div className="dtv-stat-card__sub">Cần kiểm tra lại</div>
-        </div>
-      </div>
-
-      {/* ── Filter bar ── */}
-      {aggregations.length > 0 && (
-        <div className="dtv-aggregations">
-          {aggregations.map(a => (
-            <div key={a.field_key} className="dtv-agg-card">
-              <div className="dtv-agg-card__label">{a.label}</div>
-              <div className="dtv-agg-card__value">{formatValue(a.data_type, a.result, a.unit)}</div>
-              <div className="dtv-agg-card__sub">
-                {a.aggregation_type === 'sum' ? 'Tổng' : a.aggregation_type} · {a.value_count} giá trị
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="bbo-card dtv-filters">
         <div className="dtv-filters__header">
-          <span className="dtv-filters__title">Bộ lọc</span>
-          {hasActiveFilters && (
-            <span className="dtv-filter-active-badge">
-              {activeFilterCount} bộ lọc đang bật
-            </span>
-          )}
+          <div className="dtv-filters__header-left">
+            <span className="dtv-filters__title">Bộ lọc</span>
+            {hasActiveFilters && (
+              <span className="dtv-filter-active-badge">
+                {activeFilterCount} đang bật
+              </span>
+            )}
+          </div>
+          <button
+            className="dtv-filters__toggle"
+            onClick={() => setFilterCollapsed(c => !c)}
+            title={filterCollapsed ? 'Mở rộng bộ lọc' : 'Thu gọn bộ lọc'}
+          >
+            <svg
+              width="14" height="14" viewBox="0 0 14 14" fill="none"
+              style={{ transform: filterCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.22s' }}
+            >
+              <path d="M2 5l5 5 5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
         </div>
 
+        <div className={`dtv-filters__body${filterCollapsed ? ' dtv-filters__body--collapsed' : ''}`}>
         {/* ── Static filters ── */}
         <div className="dtv-filters__grid">
           {/* Keyword search */}
@@ -785,24 +830,54 @@ export default function DocTypeViewPage() {
             />
           </div>
 
-          {/* Date range */}
+          {/* Năm */}
+          <div className="dtv-filter-item">
+            <div className="dtv-filter-item__label">Năm</div>
+            <select
+              className="dtv-filter-input dtv-filter-select"
+              value={staticDraft.period_year}
+              onChange={e => {
+                const y = e.target.value
+                setStaticDraft(d => ({ ...d, period_year: y, period_month: y ? d.period_month : '', date_from: '', date_to: '' }))
+              }}
+            >
+              <option value="">Tất cả năm</option>
+              {availableYears.map(y => <option key={y} value={String(y)}>Năm {y}</option>)}
+            </select>
+          </div>
+
+          {/* Tháng */}
+          <div className="dtv-filter-item">
+            <div className="dtv-filter-item__label">Tháng</div>
+            <select
+              className="dtv-filter-input dtv-filter-select"
+              value={staticDraft.period_month}
+              onChange={e => setStaticDraft(d => ({ ...d, period_month: e.target.value, date_from: '', date_to: '' }))}
+              disabled={!staticDraft.period_year}
+            >
+              {MONTH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+
+          {/* Từ ngày */}
           <div className="dtv-filter-item">
             <div className="dtv-filter-item__label">Từ ngày</div>
             <input
               className="dtv-filter-input"
               type="date"
               value={staticDraft.date_from}
-              onChange={e => setStaticDraft(d => ({ ...d, date_from: e.target.value }))}
+              onChange={e => setStaticDraft(d => ({ ...d, date_from: e.target.value, period_year: '', period_month: '' }))}
             />
           </div>
 
+          {/* Đến ngày */}
           <div className="dtv-filter-item">
             <div className="dtv-filter-item__label">Đến ngày</div>
             <input
               className="dtv-filter-input"
               type="date"
               value={staticDraft.date_to}
-              onChange={e => setStaticDraft(d => ({ ...d, date_to: e.target.value }))}
+              onChange={e => setStaticDraft(d => ({ ...d, date_to: e.target.value, period_year: '', period_month: '' }))}
             />
           </div>
         </div>
@@ -865,15 +940,53 @@ export default function DocTypeViewPage() {
         )}
 
         <div className="dtv-filters__actions">
-          <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={applyFilters}>
-            Áp dụng bộ lọc
-          </button>
-          {hasActiveFilters && (
-            <button className="bbo-btn bbo-btn-sm" onClick={clearFilters}>
-              Xóa tất cả bộ lọc
+          <div className="dtv-filters__actions-btns">
+            <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={applyFilters}>
+              Áp dụng bộ lọc
             </button>
-          )}
+            {hasActiveFilters && (
+              <button className="bbo-btn bbo-btn-sm" onClick={clearFilters}>
+                Xóa tất cả bộ lọc
+              </button>
+            )}
+          </div>
+          <div className="dtv-stats-inline">
+            <div className="dtv-stats-inline__item">
+              <span className="dtv-stats-inline__value">{stats.total.toLocaleString()}</span>
+              <span className="dtv-stats-inline__label">Tổng</span>
+            </div>
+            <div className="dtv-stats-inline__divider" />
+            <div className="dtv-stats-inline__item">
+              <span className="dtv-stats-inline__value dtv-stats-inline__value--need">{needCount.toLocaleString()}</span>
+              <span className="dtv-stats-inline__label">Cần xử lý</span>
+            </div>
+            <div className="dtv-stats-inline__divider" />
+            <div className="dtv-stats-inline__item">
+              <span className="dtv-stats-inline__value dtv-stats-inline__value--approved">{stats.approved.toLocaleString()}</span>
+              <span className="dtv-stats-inline__label">Đã duyệt · {approvedPct}%</span>
+            </div>
+            <div className="dtv-stats-inline__divider" />
+            <div className="dtv-stats-inline__item">
+              <span className="dtv-stats-inline__value dtv-stats-inline__value--flag">{stats.flagged.toLocaleString()}</span>
+              <span className="dtv-stats-inline__label">Bị flag</span>
+            </div>
+          </div>
         </div>
+
+        {aggregations.length > 0 && (
+          <div className="dtv-agg-strip">
+            {aggregations.map((a, i) => (
+              <>
+                {i > 0 && <div key={`d-${a.field_key}`} className="dtv-agg-strip__divider" />}
+                <div key={a.field_key} className="dtv-agg-strip__item">
+                  <span className="dtv-agg-strip__value">{formatValue(a.data_type, a.result, a.unit)}</span>
+                  <span className="dtv-agg-strip__label">{a.label} · {a.value_count} giá trị</span>
+                </div>
+              </>
+            ))}
+          </div>
+        )}
+        </div>{/* /dtv-filters__body */}
       </div>
 
       {/* ── Table section: column ctrl bar + table card merged visually ── */}

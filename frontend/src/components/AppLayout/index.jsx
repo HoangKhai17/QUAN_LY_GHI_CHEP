@@ -57,25 +57,21 @@ function IconHome() {
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
 const NAV_MAIN = [
-  { to: '/app/dashboard',    label: 'Dashboard',          Icon: IconGrid   },
-  { to: '/app/records',      label: 'Danh sách Record',   Icon: IconList   },
-  { to: '/app/doc-types',    label: 'Theo loại tài liệu', Icon: IconTable  },
-  { to: '/app/quick-review', label: 'Rà soát nhanh',     Icon: IconZap    },
-  { to: '/app/search',       label: 'Tìm kiếm',          Icon: IconSearch },
+  { to: '/app/dashboard', label: 'Dashboard',       Icon: IconGrid  },
+  { to: '/app/records',   label: 'Danh sách Record', Icon: IconList  },
+  { to: '/app/doc-types', label: 'Phân loại',       Icon: IconTable },
+  { to: '/app/reports',   label: 'Báo cáo',         Icon: IconChart },
 ]
 const NAV_ADMIN = [
-  { to: '/app/reports',      label: 'Báo cáo',         Icon: IconChart    },
-  { to: '/app/settings',     label: 'Cài đặt',         Icon: IconSettings },
+  { to: '/app/settings', label: 'Cài đặt', Icon: IconSettings },
 ]
 
 const PAGE_TITLES = {
-  '/app/dashboard':    'Dashboard',
-  '/app/records':      'Danh sách Record',
-  '/app/doc-types':    'Theo loại tài liệu',
-  '/app/quick-review': 'Rà soát nhanh',
-  '/app/search':       'Tìm kiếm',
-  '/app/reports':      'Báo cáo',
-  '/app/settings':     'Cài đặt',
+  '/app/dashboard': 'Dashboard',
+  '/app/records':   'Danh sách Record',
+  '/app/doc-types': 'Phân loại',
+  '/app/reports':   'Báo cáo',
+  '/app/settings':  'Cài đặt',
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

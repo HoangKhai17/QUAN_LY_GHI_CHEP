@@ -180,6 +180,8 @@
 /* ── Main area ──────────────────────────────────────────────────────────────── */
 .mainArea {
   flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
   margin-left: var(--sidebar-w);
   display: flex;
   flex-direction: column;
@@ -504,7 +506,7 @@
 .sidebar--collapsed .sidebarVersion  { display: none; }
 
 /* ── Content ─────────────────────────────────────────────────────────────────── */
-.content { flex: 1; padding: 0; padding-bottom: 32px; }
+.content { flex: 1; min-width: 0; padding: 0; padding-bottom: 32px; }
 
 /* ── Footer ──────────────────────────────────────────────────────────────────── */
 .footer {

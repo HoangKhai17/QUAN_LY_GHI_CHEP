@@ -844,7 +844,8 @@ GET /api/users                ← Danh sách nhân viên (để filter báo cáo
 
 ## 📅 PHASE 3 — FRONTEND: AUTH & LAYOUT
 > **Thời gian:** 2 ngày | **Mục tiêu:** Login hoạt động, layout sidebar cơ bản
-> **Trạng thái (2026-04-22):** Steps 3.1–3.5 hoàn thành. Login flow end-to-end hoạt động. App shell có Sidebar + Header + Footer. Dashboard hiển thị summary thật từ backend.
+> **Trạng thái (2026-04-25):** Steps 3.1–3.5 hoàn thành. Login flow end-to-end hoạt động. App shell có Sidebar + Header + Footer. Dashboard hiển thị summary thật từ backend.
+> **Cập nhật navigation (2026-04-25):** Loại bỏ "Rà soát nhanh" và "Tìm kiếm" khỏi sidebar — search đã được tích hợp ngay trong trang Danh sách Record (filter + search bar). Sidebar còn 4 mục điều hướng chính.
 
 ### Step 3.1 — Setup Router & Layout ✅ ĐÃ XONG
 
@@ -853,11 +854,10 @@ src/App.jsx
   ├── / → redirect /dashboard
   ├── /login → <LoginPage>
   └── /app/* → <AppLayout> (yêu cầu đã login)
-       ├── /app/dashboard → <DashboardPage>
-       ├── /app/records/:id → <RecordDetailPage>
-       ├── /app/quick-review → <QuickReviewPage>
-       ├── /app/search → <SearchPage>
-       └── /app/reports → <ReportsPage>
+       ├── /app/dashboard  → <DashboardPage>
+       ├── /app/records    → <RecordsPage>      ← search + filter tích hợp trong trang
+       ├── /app/doc-types  → <DocTypeViewPage>  ← xem record theo loại tài liệu
+       └── /app/reports    → <ReportsPage>
 ```
 
 ### Step 3.2 — Login Page ✅ ĐÃ XONG
@@ -870,16 +870,19 @@ src/pages/Login/index.jsx
   └── Redirect về /app/dashboard
 ```
 
-### Step 3.3 — App Layout (Sidebar + Header) ✅ ĐÃ XONG (placeholder)
+### Step 3.3 — App Layout (Sidebar + Header) ✅ ĐÃ XONG
 
 ```
-src/components/AppLayout/
-├── Sidebar.jsx     ← Ant Design <Layout.Sider>
-│   ├── 🏠 Dashboard
-│   ├── ⚡ Rà soát nhanh
-│   ├── 🔍 Tìm kiếm
-│   └── 📊 Báo cáo
-└── Header.jsx      ← Tên user + 🔔 Bell badge + Logout
+src/components/AppLayout/index.jsx
+├── Sidebar (collapsible — 260px mở rộng / 64px thu gọn)
+│   ├── Điều hướng chính
+│   │   ├── 🏠 Dashboard         → /app/dashboard
+│   │   ├── 📋 Danh sách Record  → /app/records
+│   │   ├── 🗂  Phân loại        → /app/doc-types  (trước: "Theo loại tài liệu")
+│   │   └── 📊 Báo cáo          → /app/reports
+│   └── Quản trị hệ thống
+│       └── ⚙️  Cài đặt          → /app/settings
+└── Header   ← Breadcrumb + Search bar + Bell badge + User dropdown
 ```
 
 ### Step 3.4 — API Service layer ✅ ĐÃ XONG
@@ -1279,77 +1282,33 @@ function updateRecord(id, patch) {
 
 ---
 
-## 📅 PHASE 6 — QUICK REVIEW MODE
-> **Thời gian:** 2 ngày | **Mục tiêu:** Duyệt nhanh hàng loạt records
+## ~~📅 PHASE 6 — QUICK REVIEW MODE~~ ❌ ĐÃ LOẠI BỎ KHỎI SCOPE
 
-### Step 6.1 — Quick Review Page
-
-```
-src/pages/QuickReview/index.jsx
-  ├── Load danh sách records status='new', sort received_at ASC
-  ├── Hiển thị 1 record toàn màn hình
-  │   ├── Ảnh lớn (50% màn hình)
-  │   ├── Thông tin record bên phải
-  │   └── Navigation: [← Trước] Record 3/24 [Tiếp →]
-  └── Action bar: [✅ Duyệt] [🚩 Flag] [⏩ Bỏ qua] [✏️ Sửa]
-```
-
-### Step 6.2 — Keyboard Shortcuts
-
-| Phím | Hành động |
-|------|-----------|
-| `A` hoặc `Enter` | Duyệt (Approve) |
-| `F` | Flag |
-| `Space` | Bỏ qua (Skip) |
-| `→` | Record tiếp theo |
-| `←` | Record trước |
-| `E` | Mở inline edit |
-
-### Step 6.3 — Completion Screen
-
-```
-Khi hết records:
-  ✅ Đã rà soát xong! 24 records
-  [Quay về Dashboard]
-```
+> **Quyết định (2026-04-25):** Không triển khai trang Rà soát nhanh riêng biệt.
+>
+> **Lý do:** Trang Danh sách Record (`/app/records`) đã cung cấp đủ khả năng xử lý hàng loạt:
+> - Bulk select + delete nhiều record cùng lúc
+> - Filter nhanh theo status (Mới / Đã xem / Đã duyệt / Flagged)
+> - Click vào row mở RecordDetail Drawer → Approve/Flag inline
+> - Không cần trang full-screen riêng làm phức tạp navigation
+>
+> **Trạng thái:** Đã xóa khỏi sidebar. Route `/app/quick-review` giữ lại nhưng không link vào nav.
 
 ---
 
-## 📅 PHASE 7 — SEARCH
-> **Thời gian:** 2 ngày | **Mục tiêu:** Tìm kiếm đầy đủ theo nhiều tiêu chí
+## ~~📅 PHASE 7 — SEARCH~~ ❌ ĐÃ TÍCH HỢP VÀO RECORDS PAGE
 
-### Step 7.1 — Search Page
-
-```
-src/pages/Search/index.jsx
-  ├── SearchBar (input lớn + button Tìm)
-  ├── AdvancedFilterPanel (collapsible)
-  │   ├── Date range picker
-  │   ├── Sender select (dropdown danh sách nhân viên)
-  │   ├── Category select
-  │   └── Status checkboxes
-  └── SearchResults
-      ├── Đếm: "Tìm thấy 12 kết quả"
-      └── RecordList (tái dùng component Phase 4)
-```
-
-### Step 7.2 — Keyword Highlighting
-
-Highlight từ khóa tìm kiếm trong `note` và `ocr_text`:
-```jsx
-// Dùng react-highlight-words hoặc custom highlight component
-<Highlighter
-  searchWords={[keyword]}
-  textToHighlight={record.note}
-/>
-```
-
-### Step 7.3 — URL State Sync
-
-Đồng bộ filter vào URL query params để có thể share link kết quả:
-```
-/app/search?q=hóa+đơn&date_from=2026-04-01&status=approved
-```
+> **Quyết định (2026-04-25):** Không triển khai trang Search riêng. Tìm kiếm đã được tích hợp trực tiếp vào trang Danh sách Record.
+>
+> **Đã có trong `/app/records`:**
+> - Search bar tìm theo ghi chú, người gửi, nội dung OCR
+> - Filter theo status, platform, date range, sender
+> - Filter theo loại tài liệu (qua trang `/app/doc-types`)
+> - Phân trang 20/50/100 items + first/last buttons
+>
+> **Lý do:** Trang Search riêng tạo ra UX phân mảnh — người dùng phải chuyển giữa 2 trang để làm cùng 1 việc. Tích hợp tìm kiếm tại chỗ tiện lợi và nhất quán hơn.
+>
+> **Trạng thái:** Đã xóa khỏi sidebar. Route `/app/search` giữ lại nhưng không link vào nav.
 
 ---
 
@@ -1570,36 +1529,35 @@ backend/src/db/seeds/seed_demo.js
 
 ## 📊 TỔNG KẾT TIMELINE
 
-| Phase | Nội dung | Thời gian | Kết quả kiểm tra |
-|-------|----------|-----------|-----------------|
-| 0 | Foundation & DB Setup (8 bảng + Security) | 2 ngày | Docker + DB + Security headers |
-| 1 | Multi-Platform Connector (Telegram+Zalo) + OCR + ngrok | 5 ngày | Gửi ảnh Telegram → record vào DB |
-| 2 | Backend API đầy đủ + JWT + Audit | 4 ngày | Postman test all endpoints |
-| 3 | Frontend Auth + Layout + Sentry | 2 ngày | Login (Access+Refresh), layout đẹp |
-| 4 | Dashboard & Review (Signed URL) | 4 ngày | Duyệt/Flag/Sửa được records |
-| 5 | Realtime WebSocket | 2 ngày | Badge tự cập nhật |
-| 6 | Quick Review Mode | 2 ngày | Keyboard shortcut hoạt động |
-| 7 | Search | 2 ngày | Tìm kiếm full-text có highlight |
-| 8 | Reports Excel/PDF | 3 ngày | Download file báo cáo |
-| 8b | Observability (Sentry + Winston) | 1 ngày | Log structured, Sentry nhận event |
-| 9 | Polish & Security Checklist & Deploy | 3 ngày | Production sẵn sàng |
-| **Tổng** | | **~30 ngày** (~6 tuần) | |
+| Phase | Nội dung | Thời gian | Trạng thái |
+|-------|----------|-----------|------------|
+| 0 | Foundation & DB Setup (8 bảng + Security) | 2 ngày | ✅ Hoàn thành |
+| 1 | Multi-Platform Connector (Telegram+Zalo) + OCR + ngrok | 5 ngày | ✅ Hoàn thành |
+| 2 | Backend API đầy đủ + JWT + Audit | 4 ngày | ✅ Hoàn thành |
+| 3 | Frontend Auth + Layout (sidebar collapsible, nav 4 mục) | 2 ngày | ✅ Hoàn thành |
+| 4 | Dashboard & Review + search/filter tích hợp | 4 ngày | ✅ Hoàn thành |
+| 5 | Realtime WebSocket + Bell notification | 2 ngày | ✅ Hoàn thành |
+| ~~6~~ | ~~Quick Review Mode~~ | — | ❌ Loại bỏ — tích hợp vào Records page |
+| ~~7~~ | ~~Search riêng biệt~~ | — | ❌ Loại bỏ — search tích hợp trong Records |
+| 6 (cũ 8) | Reports Excel/PDF | 3 ngày | 🔲 Chưa bắt đầu |
+| 7 (cũ 8b) | Observability (Sentry + Winston) | 1 ngày | 🔲 Chưa bắt đầu |
+| 8 (cũ 9) | Polish & Security Checklist & Deploy | 3 ngày | 🔲 Chưa bắt đầu |
+| **Tổng còn lại** | | **~7 ngày** | |
 
 ---
 
-## 🚦 THỨ TỰ DEPENDENCY
+## 🚦 THỨ TỰ DEPENDENCY (đã cập nhật)
 
 ```
-Phase 0 (DB)
-    └─► Phase 1 (Multi-Platform Connector Pipeline)
-    └─► Phase 2 (API)
-            └─► Phase 3 (Frontend Login)
-                    └─► Phase 4 (Dashboard)
-                            ├─► Phase 5 (Realtime)
-                            ├─► Phase 6 (Quick Review)
-                            ├─► Phase 7 (Search)
-                            └─► Phase 8 (Reports)
-                                    └─► Phase 9 (Deploy)
+Phase 0 (DB) ✅
+    └─► Phase 1 (Multi-Platform Connector) ✅
+    └─► Phase 2 (API) ✅
+            └─► Phase 3 (Frontend Login + Layout) ✅
+                    └─► Phase 4 (Dashboard + Records + Search tích hợp) ✅
+                            ├─► Phase 5 (Realtime) ✅
+                            └─► Phase 6 (Reports)
+                                    └─► Phase 7 (Observability)
+                                            └─► Phase 8 (Deploy)
 ```
 
 ---

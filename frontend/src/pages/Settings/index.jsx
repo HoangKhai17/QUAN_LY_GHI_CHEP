@@ -385,7 +385,29 @@ function UsersTab({ currentUserRole }) {
 
 // ── Tab: Document Types ────────────────────────────────────────────────────────
 
-const EMPTY_FIELD_FORM = { field_key: '', label: '', data_type: 'text', unit: '', is_filterable: false }
+const EMPTY_FIELD_FORM = {
+  field_key: '', label: '', data_type: 'text', unit: '',
+  is_filterable: false, is_reportable: false, aggregation_type: 'none',
+}
+
+const AGG_OPTIONS = [
+  { value: 'none', label: 'Không' },
+  { value: 'sum',  label: 'Tổng' },
+]
+
+function isNumericFieldType(dataType) {
+  return dataType === 'number' || dataType === 'money'
+}
+
+function normalizeReportConfig(form) {
+  if (!isNumericFieldType(form.data_type)) {
+    return { ...form, is_reportable: false, aggregation_type: 'none' }
+  }
+  if (form.is_reportable && form.aggregation_type === 'none') {
+    return { ...form, aggregation_type: 'sum' }
+  }
+  return form
+}
 
 function DocTypesTab() {
   const [types,          setTypes]          = useState([])
@@ -461,7 +483,7 @@ function DocTypesTab() {
   async function handleAddField(typeId, e) {
     e.preventDefault()
     setFieldErrors(prev => ({ ...prev, [typeId]: '' }))
-    const f = { ...EMPTY_FIELD_FORM, ...fieldForms[typeId] }
+    const f = normalizeReportConfig({ ...EMPTY_FIELD_FORM, ...fieldForms[typeId] })
     if (!f.field_key.trim() || !f.label.trim()) {
       setFieldErrors(prev => ({ ...prev, [typeId]: 'field_key và nhãn là bắt buộc' }))
       return
@@ -504,6 +526,25 @@ function DocTypesTab() {
     }))
   }
 
+  function setFieldDataType(typeId, val) {
+    setFieldForms(prev => {
+      const next = { ...EMPTY_FIELD_FORM, ...prev[typeId], data_type: val }
+      return { ...prev, [typeId]: normalizeReportConfig(next) }
+    })
+  }
+
+  function setFieldReportable(typeId, checked) {
+    setFieldForms(prev => {
+      const current = { ...EMPTY_FIELD_FORM, ...prev[typeId] }
+      const next = {
+        ...current,
+        is_reportable: checked && isNumericFieldType(current.data_type),
+        aggregation_type: checked && isNumericFieldType(current.data_type) ? 'sum' : 'none',
+      }
+      return { ...prev, [typeId]: next }
+    })
+  }
+
   function startEditField(typeId, f) {
     setEditFieldId({ typeId, fieldId: f.id })
     setEditFieldForm({
@@ -511,6 +552,8 @@ function DocTypesTab() {
       data_type:     f.data_type,
       unit:          f.unit ?? '',
       is_filterable: f.is_filterable ?? false,
+      is_reportable: f.is_reportable ?? false,
+      aggregation_type: f.aggregation_type ?? 'none',
       display_order: f.display_order ?? 0,
     })
   }
@@ -523,7 +566,8 @@ function DocTypesTab() {
   async function handleSaveField(typeId, fieldId) {
     setSavingField(true)
     try {
-      const updated = await adminSvc.updateDocumentTypeField(typeId, fieldId, editFieldForm)
+      const payload = normalizeReportConfig(editFieldForm)
+      const updated = await adminSvc.updateDocumentTypeField(typeId, fieldId, payload)
       setExpandedFields(prev => ({
         ...prev,
         [typeId]: (prev[typeId] ?? []).map(f => f.id === fieldId ? { ...f, ...updated } : f),
@@ -645,6 +689,8 @@ function DocTypesTab() {
                         <th>Đơn vị</th>
                         <th>Lọc</th>
                         <th>Thứ tự</th>
+                        <th>Báo cáo</th>
+                        <th>Tổng hợp</th>
                         <th></th>
                       </tr>
                     </thead>
@@ -668,7 +714,7 @@ function DocTypesTab() {
                                 <select
                                   className="adm-select adm-select-sm"
                                   value={editFieldForm.data_type}
-                                  onChange={e => setEditFieldForm(p => ({ ...p, data_type: e.target.value }))}
+                                  onChange={e => setEditFieldForm(p => normalizeReportConfig({ ...p, data_type: e.target.value }))}
                                 >
                                   <option value="text">text</option>
                                   <option value="number">number</option>
@@ -705,6 +751,33 @@ function DocTypesTab() {
                                 />
                               </td>
                               <td>
+                                <input
+                                  type="checkbox"
+                                  disabled={!isNumericFieldType(editFieldForm.data_type)}
+                                  checked={isNumericFieldType(editFieldForm.data_type) && editFieldForm.is_reportable}
+                                  onChange={e => setEditFieldForm(p => ({
+                                    ...p,
+                                    is_reportable: e.target.checked,
+                                    aggregation_type: e.target.checked ? 'sum' : 'none',
+                                  }))}
+                                />
+                              </td>
+                              <td>
+                                <select
+                                  className="adm-select adm-select-sm"
+                                  style={{ width: 92 }}
+                                  disabled={!isNumericFieldType(editFieldForm.data_type) || !editFieldForm.is_reportable}
+                                  value={editFieldForm.aggregation_type ?? 'none'}
+                                  onChange={e => setEditFieldForm(p => ({
+                                    ...p,
+                                    aggregation_type: e.target.value,
+                                    is_reportable: e.target.value !== 'none',
+                                  }))}
+                                >
+                                  {AGG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              </td>
+                              <td>
                                 <div className="adm-field-actions">
                                   <button
                                     className="adm-confirm-btn adm-confirm-btn--primary"
@@ -730,6 +803,8 @@ function DocTypesTab() {
                             <td>{f.unit || '—'}</td>
                             <td>{f.is_filterable ? '✓' : '—'}</td>
                             <td>{f.display_order}</td>
+                            <td>{f.is_reportable ? '✓' : '—'}</td>
+                            <td>{f.aggregation_type && f.aggregation_type !== 'none' ? f.aggregation_type : '-'}</td>
                             <td>
                               <div className="adm-field-actions">
                                 <button
@@ -773,7 +848,7 @@ function DocTypesTab() {
                     <select
                       className="adm-select adm-select-sm"
                       value={fieldForms[t.id]?.data_type ?? 'text'}
-                      onChange={e => setFF(t.id, 'data_type', e.target.value)}
+                      onChange={e => setFieldDataType(t.id, e.target.value)}
                     >
                       <option value="text">text</option>
                       <option value="number">number</option>
@@ -797,6 +872,32 @@ function DocTypesTab() {
                       />
                       Lọc được
                     </label>
+                    <label className="adm-check-label">
+                      <input
+                        type="checkbox"
+                        disabled={!isNumericFieldType(fieldForms[t.id]?.data_type ?? 'text')}
+                        checked={isNumericFieldType(fieldForms[t.id]?.data_type ?? 'text') && (fieldForms[t.id]?.is_reportable ?? false)}
+                        onChange={e => setFieldReportable(t.id, e.target.checked)}
+                      />
+                      Báo cáo
+                    </label>
+                    <select
+                      className="adm-select adm-select-sm"
+                      style={{ width: 100 }}
+                      disabled={!isNumericFieldType(fieldForms[t.id]?.data_type ?? 'text') || !(fieldForms[t.id]?.is_reportable ?? false)}
+                      value={fieldForms[t.id]?.aggregation_type ?? 'none'}
+                      onChange={e => setFieldForms(prev => ({
+                        ...prev,
+                        [t.id]: {
+                          ...EMPTY_FIELD_FORM,
+                          ...prev[t.id],
+                          aggregation_type: e.target.value,
+                          is_reportable: e.target.value !== 'none',
+                        },
+                      }))}
+                    >
+                      {AGG_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
                     <button type="submit" className="bbo-btn bbo-btn-sm bbo-btn-primary">+ Thêm</button>
                   </div>
                 </form>

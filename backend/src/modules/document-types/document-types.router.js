@@ -22,6 +22,7 @@ router.use(requireAuth)
 
 const VALID_DATA_TYPES = ['text', 'number', 'date', 'datetime', 'boolean', 'json', 'money']
 const VALID_AGG_TYPES  = ['none', 'sum', 'avg', 'count', 'min', 'max']
+const NUMERIC_AGG_TYPES = ['sum', 'avg', 'min', 'max']
 
 // ── GET /api/document-types ───────────────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -111,6 +112,9 @@ router.post('/:id/fields', requireRole('admin', 'manager'), async (req, res) => 
   if (!VALID_AGG_TYPES.includes(aggregation_type)) {
     return res.status(400).json({ error: `aggregation_type must be one of: ${VALID_AGG_TYPES.join(', ')}` })
   }
+  if (NUMERIC_AGG_TYPES.includes(aggregation_type) && !['number', 'money'].includes(data_type)) {
+    return res.status(400).json({ error: `${aggregation_type} aggregation is only supported for number/money fields` })
+  }
   if (!/^[a-zA-Z0-9_]+$/.test(field_key.trim())) {
     return res.status(400).json({ error: 'field_key must contain only letters, digits, and underscores' })
   }
@@ -143,12 +147,27 @@ router.post('/:id/fields', requireRole('admin', 'manager'), async (req, res) => 
 
 // ── PATCH /api/document-types/:id/fields/:fieldId ────────────────────────────
 router.patch('/:id/fields/:fieldId', requireRole('admin', 'manager'), async (req, res) => {
-  const { label, unit, is_required, is_filterable, is_reportable, aggregation_type, display_order } = req.body || {}
+  const { label, data_type, unit, is_required, is_filterable, is_reportable, aggregation_type, display_order } = req.body || {}
 
   const setClauses = []
   const params     = []
 
+  let effectiveDataType = data_type
+  if (aggregation_type !== undefined && effectiveDataType === undefined) {
+    const { rows: [field] } = await db.query(
+      `SELECT data_type FROM document_type_fields WHERE id = $1 AND document_type_id = $2`,
+      [req.params.fieldId, req.params.id]
+    )
+    effectiveDataType = field?.data_type
+  }
+
   if (label            !== undefined) setClauses.push(`label = $${params.push(label.trim())}`)
+  if (data_type        !== undefined) {
+    if (!VALID_DATA_TYPES.includes(data_type)) {
+      return res.status(400).json({ error: `data_type must be one of: ${VALID_DATA_TYPES.join(', ')}` })
+    }
+    setClauses.push(`data_type = $${params.push(data_type)}`)
+  }
   if (unit             !== undefined) setClauses.push(`unit = $${params.push(unit?.trim() || null)}`)
   if (is_required      !== undefined) setClauses.push(`is_required = $${params.push(Boolean(is_required))}`)
   if (is_filterable    !== undefined) setClauses.push(`is_filterable = $${params.push(Boolean(is_filterable))}`)
@@ -157,6 +176,9 @@ router.patch('/:id/fields/:fieldId', requireRole('admin', 'manager'), async (req
   if (aggregation_type !== undefined) {
     if (!VALID_AGG_TYPES.includes(aggregation_type)) {
       return res.status(400).json({ error: `aggregation_type must be one of: ${VALID_AGG_TYPES.join(', ')}` })
+    }
+    if (NUMERIC_AGG_TYPES.includes(aggregation_type) && !['number', 'money'].includes(effectiveDataType)) {
+      return res.status(400).json({ error: `${aggregation_type} aggregation is only supported for number/money fields` })
     }
     setClauses.push(`aggregation_type = $${params.push(aggregation_type)}`)
   }

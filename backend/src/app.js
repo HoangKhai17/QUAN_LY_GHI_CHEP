@@ -16,6 +16,9 @@ const { errorHandler, notFound } = require('./middlewares/errorHandler')
 const app = express()
 const server = http.createServer(app)
 
+// Parse nested query params such as fv[amount][gte]=1000000.
+app.set('query parser', 'extended')
+
 // ── Realtime ────────────────────────────────────────────────────
 const io = new SocketIO(server, {
   cors: { origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true },

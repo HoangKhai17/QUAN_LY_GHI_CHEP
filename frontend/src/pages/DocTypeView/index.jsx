@@ -63,6 +63,33 @@ function getOps(dataType) {
   ]
 }
 
+function serializeParams(p) {
+  const parts = []
+  const enc = v => encodeURIComponent(String(v))
+    .replace(/%5B/gi, '[').replace(/%5D/gi, ']')
+  function build(key, val) {
+    if (val == null) return
+    if (typeof val === 'object' && !Array.isArray(val)) {
+      Object.keys(val).forEach(k => build(`${key}[${k}]`, val[k]))
+    } else {
+      parts.push(enc(key) + '=' + enc(val))
+    }
+  }
+  Object.keys(p).forEach(k => build(k, p[k]))
+  return parts.join('&')
+}
+
+function attachDynamicFilters(params, activeFilters) {
+  const fvParam = {}
+  for (const [fieldKey, { op, value }] of Object.entries(activeFilters)) {
+    if (value !== '' && value != null) {
+      fvParam[fieldKey] = fvParam[fieldKey] || {}
+      fvParam[fieldKey][op] = value
+    }
+  }
+  if (Object.keys(fvParam).length) params.fv = fvParam
+}
+
 const ChevronDown = () => (
   <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
     <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -185,6 +212,7 @@ export default function DocTypeViewPage() {
 
   // Stats cards
   const [stats, setStats] = useState({ total: 0, new: 0, reviewed: 0, approved: 0, flagged: 0 })
+  const [aggregations, setAggregations] = useState([])
 
   // Column visibility
   const [visibleCols,  setVisibleCols]  = useState(new Set())
@@ -237,6 +265,7 @@ export default function DocTypeViewPage() {
     setStaticDraft(EMPTY_STATIC)
     setPage(1)
     setRecords([])
+    setAggregations([])
     setSelected(new Set())
     setVisibleCols(new Set())
 
@@ -283,6 +312,32 @@ export default function DocTypeViewPage() {
   }, [selectedCode, docTypes])
 
   useEffect(() => { fetchStats() }, [fetchStats, filters, staticFilters])
+
+  const fetchAggregations = useCallback(async (activeFilters = filters, sFilters = staticFilters) => {
+    const type = docTypes.find(t => t.code === selectedCode)
+    if (!type?.id) return
+    const sf = sFilters ?? EMPTY_STATIC
+    const params = { document_type_id: type.id }
+    if (sf.search)              params.search      = sf.search
+    if (sf.date_from)           params.date_from   = sf.date_from
+    if (sf.date_to)             params.date_to     = sf.date_to
+    if (sf.platform?.length)    params.platform    = sf.platform.join(',')
+    if (sf.status?.length)      params.status      = sf.status.join(',')
+    if (sf.category_id?.length) params.category_id = sf.category_id.join(',')
+    attachDynamicFilters(params, activeFilters)
+
+    try {
+      const { data } = await api.get('/api/records/aggregations', {
+        params,
+        paramsSerializer: serializeParams,
+      })
+      setAggregations(data.data ?? [])
+    } catch {
+      setAggregations([])
+    }
+  }, [selectedCode, docTypes, filters, staticFilters])
+
+  useEffect(() => { fetchAggregations(filters, staticFilters) }, [fetchAggregations, filters, staticFilters])
 
   // ── Fetch records ─────────────────────────────────────────────────────────────
   const fetchRecords = useCallback(async (pg, activeFilters, limit, sFilters) => {
@@ -357,8 +412,10 @@ export default function DocTypeViewPage() {
 
   // ── Realtime socket ──────────────────────────────────────────────────────────
   const fetchStatsRef = useRef(fetchStats)
+  const fetchAggregationsRef = useRef(fetchAggregations)
   const fetchNowRef   = useRef(null)
   fetchStatsRef.current = fetchStats
+  fetchAggregationsRef.current = () => fetchAggregations(filters, staticFilters)
   fetchNowRef.current   = () => fetchRecords(page, filters, pageSize, staticFilters)
 
   useEffect(() => {
@@ -368,15 +425,18 @@ export default function DocTypeViewPage() {
     function onRecordUpdated({ record_id, new_status }) {
       setRecords(prev => prev.map(r => r.id === record_id ? { ...r, status: new_status } : r))
       fetchStatsRef.current?.()
+      fetchAggregationsRef.current?.()
     }
     function onRecordDeleted({ record_id }) {
       setRecords(prev => prev.filter(r => r.id !== record_id))
       setTotal(t => Math.max(0, t - 1))
       fetchStatsRef.current?.()
+      fetchAggregationsRef.current?.()
     }
     function onNewRecord() {
       fetchNowRef.current?.()
       fetchStatsRef.current?.()
+      fetchAggregationsRef.current?.()
     }
 
     socket.on('record_updated', onRecordUpdated)
@@ -416,6 +476,7 @@ export default function DocTypeViewPage() {
       await updateRecordStatus(record.id, 'approved')
       setRecords(prev => prev.map(r => r.id === record.id ? { ...r, status: 'approved' } : r))
       fetchStats()
+      fetchAggregations(filters, staticFilters)
       notify.success('Duyệt thành công', `Record ${record.code ?? record.id?.slice(-6).toUpperCase()} đã được duyệt`)
     } catch {
       notify.error('Duyệt thất bại', 'Vui lòng thử lại')
@@ -446,6 +507,7 @@ export default function DocTypeViewPage() {
           setRecords(prev => prev.filter(r => r.id !== record.id))
           setTotal(t => Math.max(0, t - 1))
           fetchStats()
+          fetchAggregations(filters, staticFilters)
           notify.success('Đã xóa record')
         } catch {
           notify.error('Xóa thất bại', 'Vui lòng thử lại')
@@ -464,6 +526,7 @@ export default function DocTypeViewPage() {
       setRecords(prev => prev.map(r => ids.includes(r.id) ? { ...r, status: 'approved' } : r))
       setSelected(new Set())
       fetchStats()
+      fetchAggregations(filters, staticFilters)
       notify.success(`Đã duyệt ${ids.length} record thành công`)
     } catch {
       notify.error('Duyệt thất bại, thử lại')
@@ -491,6 +554,7 @@ export default function DocTypeViewPage() {
           setTotal(t => Math.max(0, t - ids.length))
           setSelected(new Set())
           fetchStats()
+          fetchAggregations(filters, staticFilters)
           notify.success(`Đã xóa ${ids.length} record`)
         } catch {
           notify.error('Xóa thất bại, thử lại')
@@ -516,6 +580,7 @@ export default function DocTypeViewPage() {
         notify.success('Đã gắn cờ record', `Lý do: ${reason}`)
       }
       fetchStats()
+      fetchAggregations(filters, staticFilters)
       setFlagOpen(false); setFlagTarget(null); setFlagBulkMode(false)
     } catch {
       notify.error('Gắn cờ thất bại', 'Vui lòng thử lại')
@@ -629,6 +694,20 @@ export default function DocTypeViewPage() {
       </div>
 
       {/* ── Filter bar ── */}
+      {aggregations.length > 0 && (
+        <div className="dtv-aggregations">
+          {aggregations.map(a => (
+            <div key={a.field_key} className="dtv-agg-card">
+              <div className="dtv-agg-card__label">{a.label}</div>
+              <div className="dtv-agg-card__value">{formatValue(a.data_type, a.result, a.unit)}</div>
+              <div className="dtv-agg-card__sub">
+                {a.aggregation_type === 'sum' ? 'Tổng' : a.aggregation_type} · {a.value_count} giá trị
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="bbo-card dtv-filters">
         <div className="dtv-filters__header">
           <span className="dtv-filters__title">Bộ lọc</span>
@@ -1065,11 +1144,13 @@ export default function DocTypeViewPage() {
         onStatusChange={(id, patch) => {
           setRecords(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
           fetchStats()
+          fetchAggregations(filters, staticFilters)
         }}
         onDelete={id => {
           setRecords(prev => prev.filter(r => r.id !== id))
           setTotal(prev => Math.max(0, prev - 1))
           fetchStats()
+          fetchAggregations(filters, staticFilters)
           setDetailOpen(false)
           closeDetail()
         }}

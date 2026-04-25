@@ -33,7 +33,7 @@ const VALID_STATUSES = ['new', 'reviewed', 'approved', 'flagged', 'deleted']
  *
  * Operators: gte / lte (numeric), from / to (date), like (text ILIKE), eq (auto-detect)
  */
-function buildFvCondition(fieldKey, op, rawVal, params) {
+function buildFvCondition(fieldKey, op, rawVal, params, documentTypeIds = []) {
   if (rawVal === undefined || rawVal === null || rawVal === '') return null
   if (!/^[a-zA-Z0-9_]+$/.test(fieldKey)) return null // safety
 
@@ -67,6 +67,14 @@ function buildFvCondition(fieldKey, op, rawVal, params) {
 
   params.push(fieldKey)
   const keyN = params.length
+  const scopedTypeIds = Array.isArray(documentTypeIds)
+    ? documentTypeIds.map(id => String(id).trim()).filter(Boolean)
+    : []
+  let typeScope = ''
+  if (scopedTypeIds.length > 0) {
+    params.push(scopedTypeIds)
+    typeScope = ` AND document_type_id = ANY($${params.length}::uuid[])`
+  }
   params.push(castVal)
   const valN = params.length
 
@@ -75,7 +83,7 @@ function buildFvCondition(fieldKey, op, rawVal, params) {
   return `EXISTS (
     SELECT 1 FROM record_field_values rfv_fv
     WHERE rfv_fv.record_id = r.id
-      AND rfv_fv.field_id IN (SELECT id FROM document_type_fields WHERE field_key = $${keyN})
+      AND rfv_fv.field_id IN (SELECT id FROM document_type_fields WHERE field_key = $${keyN}${typeScope})
       AND ${col} ${sqlOp} $${valN}
   )`
 }
@@ -363,7 +371,7 @@ router.get('/', async (req, res) => {
     for (const [fieldKey, ops] of Object.entries(fvFilters)) {
       if (!ops || typeof ops !== 'object') continue
       for (const [op, rawVal] of Object.entries(ops)) {
-        const cond = buildFvCondition(fieldKey, op, rawVal, params)
+        const cond = buildFvCondition(fieldKey, op, rawVal, params, documentTypeIds)
         if (cond) conditions.push(cond)
       }
     }
@@ -403,6 +411,125 @@ router.get('/', async (req, res) => {
   }
 
   res.json({ data, total: count, page: pageNum, total_pages: Math.ceil(count / limitNum) })
+})
+
+// Dynamic numeric aggregations for the same filters used by GET /api/records.
+router.get('/aggregations', async (req, res) => {
+  const {
+    status, platform, sender_id, category_id,
+    document_type_id, extraction_status,
+    search, sender_name,
+    date_from, date_to,
+  } = req.query
+
+  const conditions = []
+  const params     = []
+
+  const statuses = status
+    ? status.split(',').map(s => s.trim()).filter(s => VALID_STATUSES.includes(s))
+    : []
+  if (statuses.length > 0) {
+    conditions.push(`r.status::text = ANY($${params.push(statuses)}::text[])`)
+  } else {
+    conditions.push(`r.status != 'deleted'`)
+  }
+
+  const platforms = platform
+    ? platform.split(',').map(p => p.trim()).filter(Boolean)
+    : []
+  if (platforms.length > 0) {
+    conditions.push(`r.platform = ANY($${params.push(platforms)}::text[])`)
+  }
+
+  const categoryIds = category_id
+    ? category_id.split(',').map(c => c.trim()).filter(Boolean)
+    : []
+  if (categoryIds.length > 0) {
+    conditions.push(`r.category_id = ANY($${params.push(categoryIds)}::uuid[])`)
+  }
+
+  const senderNames = sender_name
+    ? sender_name.split(',').map(s => s.trim()).filter(Boolean)
+    : []
+  if (senderNames.length > 0) {
+    conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
+  }
+
+  if (search?.trim()) {
+    conditions.push(
+      `to_tsvector('simple', coalesce(r.note,'') || ' ' || coalesce(r.ocr_text,'') || ' ' || coalesce(r.sender_name,'')) @@ plainto_tsquery('simple', $${params.push(search.trim())})`
+    )
+  }
+
+  if (sender_id) conditions.push(`r.sender_id = $${params.push(sender_id)}::uuid`)
+
+  const documentTypeIds = document_type_id
+    ? document_type_id.split(',').map(d => d.trim()).filter(Boolean)
+    : []
+  if (documentTypeIds.length > 0) {
+    conditions.push(`r.document_type_id = ANY($${params.push(documentTypeIds)}::uuid[])`)
+  }
+
+  if (extraction_status) conditions.push(`r.extraction_status = $${params.push(extraction_status)}`)
+  if (date_from)         conditions.push(`r.received_at >= $${params.push(date_from)}`)
+  if (date_to)           conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+
+  const fvFilters = req.query.fv
+  if (fvFilters && typeof fvFilters === 'object') {
+    for (const [fieldKey, ops] of Object.entries(fvFilters)) {
+      if (!ops || typeof ops !== 'object') continue
+      for (const [op, rawVal] of Object.entries(ops)) {
+        const cond = buildFvCondition(fieldKey, op, rawVal, params, documentTypeIds)
+        if (cond) conditions.push(cond)
+      }
+    }
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`
+  const { rows } = await db.query(
+    `SELECT
+       dtf.field_key,
+       dtf.label,
+       dtf.data_type,
+       dtf.unit,
+       dtf.aggregation_type,
+       COUNT(rfv.id)::int           AS value_count,
+       SUM(rfv.value_number)::float AS sum,
+       AVG(rfv.value_number)::float AS average,
+       MIN(rfv.value_number)::float AS min,
+       MAX(rfv.value_number)::float AS max
+     FROM records r
+     JOIN record_field_values  rfv ON rfv.record_id = r.id
+     JOIN document_type_fields dtf ON dtf.id        = rfv.field_id
+     ${where}
+       AND dtf.is_reportable = TRUE
+       AND dtf.aggregation_type != 'none'
+       AND dtf.data_type IN ('number', 'money')
+       AND rfv.value_number IS NOT NULL
+     GROUP BY dtf.field_key, dtf.label, dtf.data_type, dtf.unit, dtf.aggregation_type, dtf.display_order
+     ORDER BY dtf.display_order, dtf.field_key`,
+    params
+  )
+
+  const aggregations = rows.map(row => {
+    const result = row.aggregation_type === 'avg' ? row.average
+      : row.aggregation_type === 'min' ? row.min
+      : row.aggregation_type === 'max' ? row.max
+      : row.aggregation_type === 'count' ? row.value_count
+      : row.sum
+
+    return {
+      field_key:        row.field_key,
+      label:            row.label,
+      data_type:        row.data_type,
+      unit:             row.unit,
+      aggregation_type: row.aggregation_type,
+      result,
+      value_count:      row.value_count,
+    }
+  })
+
+  res.json({ data: aggregations })
 })
 
 // ── GET /api/records/:id ──────────────────────────────────────────────────────
@@ -633,5 +760,7 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
 
   res.json({ success: true })
 })
+
+router._private = { buildFvCondition }
 
 module.exports = router

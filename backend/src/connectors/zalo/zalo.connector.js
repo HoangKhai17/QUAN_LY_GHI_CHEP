@@ -8,7 +8,22 @@ class ZaloConnector extends BaseConnector {
   constructor() {
     super('zalo')
     this.webhookSecret = process.env.ZALO_WEBHOOK_SECRET || ''
-    this.oaToken = process.env.ZALO_OA_TOKEN || ''
+    this.oaToken       = process.env.ZALO_OA_TOKEN       || ''
+    this._ensureConfig().catch(() => {})
+  }
+
+  async _ensureConfig() {
+    try {
+      const { getSetting } = require('../../services/settings.service')
+      const [oaToken, webhookSecret] = await Promise.all([
+        getSetting('zalo_oa_token'),
+        getSetting('zalo_webhook_secret'),
+      ])
+      this.oaToken       = oaToken       || ''
+      this.webhookSecret = webhookSecret || ''
+    } catch (err) {
+      logger.warn('zalo.config.refresh_failed', { error: err.message })
+    }
   }
 
   verify(req) {
@@ -35,6 +50,7 @@ class ZaloConnector extends BaseConnector {
   }
 
   async downloadImage(imageUrl) {
+    await this._ensureConfig()
     const response = await axios.get(imageUrl, {
       responseType: 'arraybuffer',
       headers: { access_token: this.oaToken },
@@ -44,6 +60,7 @@ class ZaloConnector extends BaseConnector {
   }
 
   async reply(chatId, text) {
+    await this._ensureConfig()
     if (!this.oaToken) {
       logger.warn('zalo.reply.skip', { reason: 'ZALO_OA_TOKEN not configured' })
       return

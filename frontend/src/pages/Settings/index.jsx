@@ -1024,17 +1024,297 @@ function CategoriesTab() {
   )
 }
 
+// ── Tab: API Keys ──────────────────────────────────────────────────────────────
+
+function ApiKeyField({ label, desc, settingKey, isSecret, info, onSave, onClear }) {
+  const [editing, setEditing] = useState(false)
+  const [inputVal, setInputVal] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const is_set = info?.is_set ?? false
+  const source = info?.source ?? 'none'
+
+  async function handleSave() {
+    if (!inputVal.trim()) return
+    setSaving(true)
+    try {
+      await onSave(settingKey, inputVal.trim())
+      setEditing(false)
+      setInputVal('')
+    } finally { setSaving(false) }
+  }
+
+  function handleCancel() { setEditing(false); setInputVal('') }
+
+  return (
+    <div className="apikey-field">
+      <div className="apikey-field-label">
+        {label}
+        {source === 'env' && <span className="apikey-source-badge">env</span>}
+        {!is_set && <span className="apikey-source-badge apikey-source-badge--unset">Chưa cài</span>}
+      </div>
+      {desc && <div className="apikey-field-desc">{desc}</div>}
+      <div className="apikey-field-row">
+        {editing ? (
+          <>
+            <input
+              type={isSecret ? 'password' : 'text'}
+              className="adm-input apikey-input"
+              value={inputVal}
+              onChange={e => setInputVal(e.target.value)}
+              placeholder={isSecret ? 'Nhập giá trị mới…' : 'Nhập giá trị…'}
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }}
+            />
+            <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={handleSave} disabled={saving || !inputVal.trim()}>
+              {saving ? '…' : 'Lưu'}
+            </button>
+            <button className="bbo-btn bbo-btn-sm" onClick={handleCancel}>Hủy</button>
+          </>
+        ) : (
+          <>
+            <span className={`apikey-value${!is_set ? ' apikey-value--unset' : ''}`}>
+              {is_set ? (isSecret ? '●●●●●●●●●●●●' : info.value) : '— chưa cài đặt —'}
+            </span>
+            <button className="bbo-btn bbo-btn-sm" onClick={() => setEditing(true)}>
+              {is_set ? 'Cập nhật' : 'Thiết lập'}
+            </button>
+            {is_set && source === 'db' && (
+              <button className="bbo-btn bbo-btn-sm bbo-btn-danger-outline" onClick={() => onClear(settingKey)} title="Xóa giá trị trong DB (quay về .env)">
+                Xóa
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ApiKeysTab() {
+  const [settings, setSettings] = useState(null)
+  const [loading,  setLoading]  = useState(true)
+  const [savingModel, setSavingModel] = useState(false)
+  const [modelInput, setModelInput] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminSvc.getSettings()
+      setSettings(res.data)
+      setModelInput(res.data?.gemini_model?.value || '')
+    } catch (err) {
+      notify.error('Tải cài đặt thất bại', err.response?.data?.error || 'Lỗi kết nối')
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSave(key, value) {
+    try {
+      await adminSvc.updateSetting(key, value)
+      notify.success('Đã lưu', `Cài đặt "${key}" đã được cập nhật`)
+      load()
+    } catch (err) {
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu cài đặt')
+      throw err
+    }
+  }
+
+  async function handleClear(key) {
+    try {
+      await adminSvc.clearSetting(key)
+      notify.success('Đã xóa', `Cài đặt "${key}" đã bị xóa (hoàn về .env)`)
+      load()
+    } catch (err) {
+      notify.error('Xóa thất bại', err.response?.data?.error || 'Lỗi xóa cài đặt')
+    }
+  }
+
+  async function handleSaveModel() {
+    setSavingModel(true)
+    try {
+      await adminSvc.updateSetting('gemini_model', modelInput.trim() || 'gemini-2.5-flash')
+      notify.success('Đã lưu', 'Tên model đã được cập nhật')
+      load()
+    } catch (err) {
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu')
+    } finally { setSavingModel(false) }
+  }
+
+  async function handleToggleFallback(enabled) {
+    try {
+      await adminSvc.updateSetting('ai_fallback_enabled', enabled ? 'true' : 'false')
+      notify.success('Đã lưu', `Tự động dự phòng: ${enabled ? 'Bật' : 'Tắt'}`)
+      load()
+    } catch (err) {
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu')
+    }
+  }
+
+  const s = settings
+
+  if (loading) return <div className="apikey-loading">Đang tải cài đặt…</div>
+
+  const fallbackEnabled = s?.ai_fallback_enabled?.value === 'true'
+
+  return (
+    <div className="adm-section">
+      <div className="adm-section-header">
+        <div>
+          <div className="adm-section-title">Setup API Key</div>
+          <div className="adm-section-sub">Cấu hình API key cho tích hợp Telegram, Zalo và AI / OCR — ưu tiên DB, fallback sang .env</div>
+        </div>
+      </div>
+
+      {/* Telegram */}
+      <div className="apikey-section">
+        <div className="apikey-section-header">
+          <div className="apikey-section-icon" style={{ background: '#e8f4fd' }}>✈</div>
+          <div className="apikey-section-title">Telegram Bot</div>
+        </div>
+        <div className="apikey-section-desc">
+          Lấy token từ <strong>@BotFather</strong> trên Telegram. Webhook secret là chuỗi tùy chọn để xác thực request.
+        </div>
+        <hr className="apikey-divider" />
+        <ApiKeyField
+          label="TELEGRAM_BOT_TOKEN"
+          desc="Token xác thực bot với Telegram API"
+          settingKey="telegram_bot_token"
+          isSecret={true}
+          info={s?.telegram_bot_token}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+        <ApiKeyField
+          label="TELEGRAM_WEBHOOK_SECRET"
+          desc="Chuỗi bí mật xác thực header X-Telegram-Bot-Api-Secret-Token (tùy chọn)"
+          settingKey="telegram_webhook_secret"
+          isSecret={true}
+          info={s?.telegram_webhook_secret}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+      </div>
+
+      {/* Zalo */}
+      <div className="apikey-section">
+        <div className="apikey-section-header">
+          <div className="apikey-section-icon" style={{ background: '#e8f0fe' }}>Z</div>
+          <div className="apikey-section-title">Zalo OA</div>
+        </div>
+        <div className="apikey-section-desc">
+          Lấy Access Token từ Zalo Developer Console. Webhook Secret dùng để xác thực chữ ký HMAC-SHA256.
+        </div>
+        <hr className="apikey-divider" />
+        <ApiKeyField
+          label="ZALO_OA_TOKEN"
+          desc="Zalo OA Access Token"
+          settingKey="zalo_oa_token"
+          isSecret={true}
+          info={s?.zalo_oa_token}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+        <ApiKeyField
+          label="ZALO_WEBHOOK_SECRET"
+          desc="HMAC key để xác thực webhook từ Zalo"
+          settingKey="zalo_webhook_secret"
+          isSecret={true}
+          info={s?.zalo_webhook_secret}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+      </div>
+
+      {/* AI / OCR */}
+      <div className="apikey-section">
+        <div className="apikey-section-header">
+          <div className="apikey-section-icon" style={{ background: '#f0fdf4' }}>AI</div>
+          <div className="apikey-section-title">AI / OCR — Gemini</div>
+        </div>
+        <div className="apikey-section-desc">
+          Lấy API key từ <strong>aistudio.google.com</strong>. Khi bật dự phòng, hệ thống tự chuyển sang key phụ nếu key chính gặp lỗi.
+        </div>
+        <hr className="apikey-divider" />
+
+        <ApiKeyField
+          label="API Key Chính (Primary)"
+          desc="Dùng cho mọi yêu cầu OCR bình thường"
+          settingKey="gemini_api_key_primary"
+          isSecret={true}
+          info={s?.gemini_api_key_primary}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+        <ApiKeyField
+          label="API Key Dự phòng (Fallback)"
+          desc="Tự động kích hoạt khi key chính gặp lỗi (nếu bật bên dưới)"
+          settingKey="gemini_api_key_fallback"
+          isSecret={true}
+          info={s?.gemini_api_key_fallback}
+          onSave={handleSave}
+          onClear={handleClear}
+        />
+
+        {/* Fallback toggle */}
+        <div className="apikey-field">
+          <div className="apikey-field-label">Tự động chuyển sang key dự phòng</div>
+          <div className="apikey-field-desc">Khi bật, nếu key chính trả về lỗi, hệ thống sẽ thử lại với key dự phòng trong cùng request đó</div>
+          <div className="apikey-toggle-row">
+            <label className="apikey-toggle">
+              <input
+                type="checkbox"
+                checked={fallbackEnabled}
+                onChange={e => handleToggleFallback(e.target.checked)}
+              />
+              <span className="apikey-toggle-track" />
+            </label>
+            <span className="apikey-toggle-label">{fallbackEnabled ? 'Đang bật' : 'Đang tắt'}</span>
+          </div>
+        </div>
+
+        {/* Model name */}
+        <div className="apikey-field">
+          <div className="apikey-field-label">Tên Model</div>
+          <div className="apikey-field-desc">Model Gemini sử dụng cho OCR (mặc định: gemini-2.5-flash)</div>
+          <div className="apikey-plain-row">
+            <input
+              className="adm-input apikey-plain-input"
+              value={modelInput}
+              onChange={e => setModelInput(e.target.value)}
+              placeholder="gemini-2.5-flash"
+              onKeyDown={e => e.key === 'Enter' && handleSaveModel()}
+            />
+            <button
+              className="bbo-btn bbo-btn-sm bbo-btn-primary"
+              onClick={handleSaveModel}
+              disabled={savingModel}
+            >
+              {savingModel ? '…' : 'Lưu'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
   { key: 'users',      label: 'Người dùng' },
   { key: 'doctypes',   label: 'Loại tài liệu' },
   { key: 'categories', label: 'Danh mục' },
+  { key: 'apikeys',    label: 'Setup API Key', adminOnly: true },
 ]
 
 export default function SettingsPage() {
   const [activeTab, setTab] = useState('users')
   const user  = useAuthStore(s => s.user)
+  const isAdmin = user?.role === 'admin'
+
+  const visibleTabs = TABS.filter(t => !t.adminOnly || isAdmin)
 
   return (
     <div className="adm-page">
@@ -1044,7 +1324,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="adm-tabs-bar">
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button
             key={t.key}
             className={`adm-tab${activeTab === t.key ? ' adm-tab--active' : ''}`}
@@ -1058,6 +1338,7 @@ export default function SettingsPage() {
       {activeTab === 'users'      && <UsersTab currentUserRole={user?.role} />}
       {activeTab === 'doctypes'   && <DocTypesTab />}
       {activeTab === 'categories' && <CategoriesTab />}
+      {activeTab === 'apikeys'    && isAdmin && <ApiKeysTab />}
 
       <div style={{ height: 32 }} />
     </div>

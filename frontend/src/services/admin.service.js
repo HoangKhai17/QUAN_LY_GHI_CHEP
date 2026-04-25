@@ -77,3 +77,19 @@ export async function updateCategory(id, payload) {
   const { data } = await api.put(`/api/categories/${id}`, payload)
   return data
 }
+
+// ── System Settings ────────────────────────────────────────────────────────────
+export async function getSettings() {
+  const { data } = await api.get('/api/settings')
+  return data // { data: { [key]: { value, is_set, is_secret, source, description, updated_at } } }
+}
+
+export async function updateSetting(key, value) {
+  const { data } = await api.patch(`/api/settings/${key}`, { value })
+  return data
+}
+
+export async function clearSetting(key) {
+  const { data } = await api.delete(`/api/settings/${key}`)
+  return data
+}

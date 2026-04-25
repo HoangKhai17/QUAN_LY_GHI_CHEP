@@ -7,9 +7,28 @@ const logger = require('../../config/logger')
 class TelegramConnector extends BaseConnector {
   constructor() {
     super('telegram')
-    this.token = process.env.TELEGRAM_BOT_TOKEN || ''
-    this.secretToken = process.env.TELEGRAM_WEBHOOK_SECRET || ''
-    this.apiBase = `https://api.telegram.org/bot${this.token}`
+    this.token       = process.env.TELEGRAM_BOT_TOKEN       || ''
+    this.secretToken = process.env.TELEGRAM_WEBHOOK_SECRET  || ''
+    this.apiBase     = `https://api.telegram.org/bot${this.token}`
+    // Kick off an async DB config load so DB-stored values take effect quickly
+    this._ensureConfig().catch(() => {})
+  }
+
+  // Refresh token/secret from DB (via settings.service TTL cache).
+  // Falls back silently to env-based values set in constructor.
+  async _ensureConfig() {
+    try {
+      const { getSetting } = require('../../services/settings.service')
+      const [token, secret] = await Promise.all([
+        getSetting('telegram_bot_token'),
+        getSetting('telegram_webhook_secret'),
+      ])
+      this.token       = token  || ''
+      this.secretToken = secret || ''
+      this.apiBase     = `https://api.telegram.org/bot${this.token}`
+    } catch (err) {
+      logger.warn('telegram.config.refresh_failed', { error: err.message })
+    }
   }
 
   verify(req) {
@@ -33,6 +52,7 @@ class TelegramConnector extends BaseConnector {
   }
 
   async downloadImage(fileId) {
+    await this._ensureConfig()
     if (!this.token) throw new Error('TELEGRAM_BOT_TOKEN not configured')
 
     // Bước 1: lấy file path từ Telegram
@@ -53,6 +73,7 @@ class TelegramConnector extends BaseConnector {
   }
 
   async reply(chatId, text) {
+    await this._ensureConfig()
     if (!this.token) {
       logger.warn('telegram.reply.skip', { reason: 'TELEGRAM_BOT_TOKEN not configured' })
       return
@@ -69,6 +90,7 @@ class TelegramConnector extends BaseConnector {
    * Gọi 1 lần khi deploy hoặc khi URL thay đổi
    */
   async registerWebhook(webhookUrl) {
+    await this._ensureConfig()
     const url = `${webhookUrl}/webhook/telegram`
     const { data } = await axios.post(`${this.apiBase}/setWebhook`, {
       url,
@@ -86,6 +108,7 @@ class TelegramConnector extends BaseConnector {
    * Kiểm tra thông tin webhook hiện tại
    */
   async getWebhookInfo() {
+    await this._ensureConfig()
     const { data } = await axios.get(`${this.apiBase}/getWebhookInfo`)
     return data.result
   }

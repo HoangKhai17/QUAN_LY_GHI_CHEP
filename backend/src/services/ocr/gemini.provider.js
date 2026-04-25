@@ -16,11 +16,29 @@ const { GoogleGenerativeAI } = require('@google/generative-ai')
 const axios = require('axios')
 const logger = require('../../config/logger')
 
-const API_KEY    = process.env.GEMINI_API_KEY || ''
-if (!API_KEY) throw new Error('[OCR] GEMINI_API_KEY is not set. Add it to .env')
+// ── Dynamic config (60s TTL cache, reads from DB via settingsService) ─────────
 
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-const genAI      = new GoogleGenerativeAI(API_KEY)
+let _cfgCache  = null
+let _cfgExpiry = 0
+
+async function _getConfig() {
+  if (_cfgCache && Date.now() < _cfgExpiry) return _cfgCache
+  const { getSetting } = require('../settings.service')
+  const [primaryKey, fallbackKey, model, fallbackEnabled] = await Promise.all([
+    getSetting('gemini_api_key_primary'),
+    getSetting('gemini_api_key_fallback'),
+    getSetting('gemini_model'),
+    getSetting('ai_fallback_enabled'),
+  ])
+  _cfgCache = {
+    primaryKey:      primaryKey  || '',
+    fallbackKey:     fallbackKey || '',
+    model:           model       || 'gemini-2.5-flash',
+    fallbackEnabled: fallbackEnabled === 'true' || fallbackEnabled === '1',
+  }
+  _cfgExpiry = Date.now() + 60_000
+  return _cfgCache
+}
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 const EXTRACTION_PROMPT = `Bạn là AI chuyên đọc và trích xuất dữ liệu từ ảnh chứng từ doanh nghiệp Việt Nam.
@@ -123,68 +141,68 @@ function estimateConfidence(parsed) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+const _failResult = {
+  text: null, confidence: 0, status: 'failed', provider: 'gemini',
+  classification: null, fields: null, raw_structured_data: null, structured_data: null,
+}
+
+async function _doExtract(imageUrl, apiKey, model) {
+  const { base64, mimeType } = await fetchImageAsBase64(imageUrl)
+  const genAI  = new GoogleGenerativeAI(apiKey)
+  const mdl    = genAI.getGenerativeModel({ model })
+  const result = await mdl.generateContent([
+    EXTRACTION_PROMPT,
+    { inlineData: { data: base64, mimeType } },
+  ])
+  const rawOutput  = result.response.text()
+  const parsed     = safeParseJson(rawOutput)
+  const text       = parsed?.raw_text || (parsed ? null : rawOutput?.slice(0, 2000))
+  const confidence = estimateConfidence(parsed)
+
+  logger.info('ocr.extract.success', {
+    provider: 'gemini', model,
+    textLength:   text?.length ?? 0,
+    documentType: parsed?.classification?.document_type_code,
+    confidence,
+  })
+  return {
+    text, confidence, status: 'success', provider: 'gemini',
+    classification:      parsed?.classification ?? null,
+    fields:              parsed?.fields          ?? null,
+    raw_structured_data: parsed                  ?? null,
+    structured_data:     parsed                  ?? null,
+  }
+}
+
 /**
  * @param {string} imageUrl  Public image URL (Cloudinary)
- * @returns {{
- *   text: string|null,
- *   confidence: number,
- *   status: 'success'|'failed',
- *   provider: string,
- *   classification: { document_type_code, category_code, confidence, reasoning }|null,
- *   fields: object|null,
- *   raw_structured_data: object|null,
- * }}
+ * @returns {{ text, confidence, status, provider, classification, fields, raw_structured_data }}
  */
 async function extractText(imageUrl) {
-  logger.info('ocr.extract.start', { provider: 'gemini', model: MODEL_NAME, url: imageUrl?.slice(0, 80) })
+  const cfg = await _getConfig()
+  logger.info('ocr.extract.start', { provider: 'gemini', model: cfg.model, url: imageUrl?.slice(0, 80) })
+
+  if (!cfg.primaryKey) {
+    logger.error('ocr.gemini.no_key', { reason: 'Gemini API key not configured' })
+    return { ..._failResult }
+  }
 
   try {
-    const { base64, mimeType } = await fetchImageAsBase64(imageUrl)
-
-    const model  = genAI.getGenerativeModel({ model: MODEL_NAME })
-    const result = await model.generateContent([
-      EXTRACTION_PROMPT,
-      { inlineData: { data: base64, mimeType } },
-    ])
-
-    const rawOutput = result.response.text()
-    const parsed    = safeParseJson(rawOutput)
-
-    const text       = parsed?.raw_text || (parsed ? null : rawOutput?.slice(0, 2000))
-    const confidence = estimateConfidence(parsed)
-
-    logger.info('ocr.extract.success', {
-      provider:     'gemini',
-      model:        MODEL_NAME,
-      textLength:   text?.length ?? 0,
-      documentType: parsed?.classification?.document_type_code,
-      confidence,
-    })
-
-    return {
-      text,
-      confidence,
-      status:              'success',
-      provider:            'gemini',
-      classification:      parsed?.classification      ?? null,
-      fields:              parsed?.fields              ?? null,
-      raw_structured_data: parsed                      ?? null,
-      // backward-compat alias kept for any code still reading structured_data
-      structured_data:     parsed                      ?? null,
-    }
-
+    return await _doExtract(imageUrl, cfg.primaryKey, cfg.model)
   } catch (err) {
-    logger.error('ocr.extract.failed', { provider: 'gemini', error: err.message })
-    return {
-      text:                null,
-      confidence:          0,
-      status:              'failed',
-      provider:            'gemini',
-      classification:      null,
-      fields:              null,
-      raw_structured_data: null,
-      structured_data:     null,
+    logger.error('ocr.extract.failed', { provider: 'gemini', model: cfg.model, error: err.message })
+
+    if (cfg.fallbackEnabled && cfg.fallbackKey) {
+      logger.warn('ocr.gemini.switching_to_fallback', { primaryError: err.message })
+      _cfgCache = null // force refresh so fallback key re-reads on next call
+      try {
+        return await _doExtract(imageUrl, cfg.fallbackKey, cfg.model)
+      } catch (err2) {
+        logger.error('ocr.extract.fallback_failed', { error: err2.message })
+      }
     }
+
+    return { ..._failResult }
   }
 }
 

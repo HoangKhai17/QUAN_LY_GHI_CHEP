@@ -4,7 +4,7 @@ import RecordList from '../../components/records/RecordList'
 import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
-import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats, getUsers } from '../../services/record.service'
+import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats, getUsers, getRecordYears } from '../../services/record.service'
 import notify from '../../utils/notify'
 import './Records.css'
 
@@ -21,9 +21,39 @@ const PLATFORM_OPTIONS = [
   { value: 'manual',   label: 'Thủ công' },
 ]
 
-const EMPTY_DRAFT = {
-  search: '', platform: [], status: [], category_id: [], document_type_id: [],
-  sender_name: [], date_from: '', date_to: '', sort_order: 'desc',
+
+const MONTH_OPTIONS = [
+  { value: '', label: 'Cả năm' },
+  ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `Tháng ${i + 1}` })),
+]
+
+function getDefaultDraft() {
+  const now = new Date()
+  return {
+    search: '', platform: [], status: [], category_id: [], document_type_id: [],
+    sender_name: [],
+    period_year:  String(now.getFullYear()),
+    period_month: String(now.getMonth() + 1),
+    date_from: '',
+    date_to:   '',
+    sort_order: 'desc',
+  }
+}
+
+function periodToDateRange(year, month) {
+  if (!year) return { date_from: '', date_to: '' }
+  if (!month) return { date_from: `${year}-01-01`, date_to: `${year}-12-31` }
+  const y = parseInt(year), m = parseInt(month)
+  const mm = String(m).padStart(2, '0')
+  const lastDay = new Date(y, m, 0).getDate()
+  return { date_from: `${year}-${mm}-01`, date_to: `${year}-${mm}-${lastDay}` }
+}
+
+function periodChipLabel(dateFrom, dateTo) {
+  if (!dateFrom) return null
+  const [y, m, d] = dateFrom.split('-')
+  if (m === '01' && d === '01' && dateTo === `${y}-12-31`) return `Năm ${y}`
+  return `Tháng ${parseInt(m)}/${y}`
 }
 
 const EMPTY_FORM = {
@@ -116,12 +146,15 @@ export default function RecordsPage() {
 
   const [pageSize, setPageSize] = useState(20)
 
+  const _initDraft = getDefaultDraft()
+  const { date_from: _initFrom, date_to: _initTo } = periodToDateRange(_initDraft.period_year, _initDraft.period_month)
+
   const {
     records, total, page, filters, loading,
     updateFilters, setPage,
     updateRecord, removeRecord,
   } = useRecordsQuery(
-    { status: searchParams.get('status') ?? '' },
+    { status: searchParams.get('status') ?? '', date_from: _initFrom, date_to: _initTo },
     pageSize,
   )
 
@@ -139,11 +172,12 @@ export default function RecordsPage() {
   const { record: detailRec, loading: loadingDetail, openById, close: closeDetail, refetch: refetchDetail } = useRecordDetail()
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const [draft, setDraft]           = useState(EMPTY_DRAFT)
-  const [categories, setCategories] = useState([])
-  const [docTypes, setDocTypes]     = useState([])
-  const [senders, setSenders]       = useState([])
-  const [systemUsers, setSystemUsers] = useState([])
+  const [draft, setDraft]           = useState(getDefaultDraft)
+  const [categories, setCategories]         = useState([])
+  const [docTypes, setDocTypes]             = useState([])
+  const [senders, setSenders]               = useState([])
+  const [systemUsers, setSystemUsers]       = useState([])
+  const [availableYears, setAvailableYears] = useState([])
 
   const [createOpen, setCreateOpen]       = useState(false)
   const [createForm, setCreateForm]       = useState(EMPTY_FORM)
@@ -159,6 +193,7 @@ export default function RecordsPage() {
     getDocumentTypes().then(r => setDocTypes(r.data ?? []))
     getSenders().then(r => setSenders(r.data ?? []))
     getUsers().then(r => setSystemUsers(r.data ?? []))
+    getRecordYears().then(r => setAvailableYears(r.data ?? []))
   }, [])
 
   // Re-fetch stats whenever applied filters change (ignores status filter — always shows full breakdown)
@@ -182,6 +217,10 @@ export default function RecordsPage() {
   const MULTI_KEYS = ['platform', 'status', 'category_id', 'document_type_id', 'sender_name']
 
   function applyFilters() {
+    // Manual date range takes priority; fall back to period (năm/tháng)
+    const { date_from, date_to } = (draft.date_from || draft.date_to)
+      ? { date_from: draft.date_from, date_to: draft.date_to }
+      : periodToDateRange(draft.period_year, draft.period_month)
     updateFilters({
       search:           draft.search.trim(),
       platform:         draft.platform.join(','),
@@ -189,15 +228,17 @@ export default function RecordsPage() {
       category_id:      draft.category_id.join(','),
       document_type_id: draft.document_type_id.join(','),
       sender_name:      draft.sender_name.join(','),
-      date_from:        draft.date_from,
-      date_to:          draft.date_to,
+      date_from,
+      date_to,
       sort_order:       draft.sort_order,
     })
   }
 
   function resetFilters() {
-    setDraft(EMPTY_DRAFT)
-    updateFilters({ search: '', platform: '', status: '', category_id: '', document_type_id: '', sender_name: '', date_from: '', date_to: '', sort_order: 'desc' })
+    const d = getDefaultDraft()
+    setDraft(d)
+    const { date_from, date_to } = periodToDateRange(d.period_year, d.period_month)
+    updateFilters({ search: '', platform: '', status: '', category_id: '', document_type_id: '', sender_name: '', date_from, date_to, sort_order: 'desc' })
   }
 
   // Sort applies immediately without needing "Tìm record"
@@ -214,6 +255,11 @@ export default function RecordsPage() {
   }
 
   function removeScalarFilter(key) {
+    if (key === 'period') {
+      setDraft(d => ({ ...d, period_year: '', period_month: '' }))
+      updateFilters({ date_from: '', date_to: '' })
+      return
+    }
     setDraft(d => ({ ...d, [key]: '' }))
     updateFilters({ [key]: '' })
   }
@@ -242,8 +288,10 @@ export default function RecordsPage() {
   ;(filters.sender_name ?? '').split(',').filter(Boolean).forEach(v => {
     activeFilters.push({ key: 'sender_name', value: v, label: `Người gửi: ${v}` })
   })
-  if (filters.date_from) activeFilters.push({ key: 'date_from', scalar: true, label: `Từ: ${filters.date_from}` })
-  if (filters.date_to)   activeFilters.push({ key: 'date_to',   scalar: true, label: `Đến: ${filters.date_to}` })
+  if (filters.date_from || filters.date_to) {
+    const lbl = periodChipLabel(filters.date_from, filters.date_to)
+    activeFilters.push({ key: 'period', scalar: true, label: `Thời gian: ${lbl}` })
+  }
 
   function closeCreateModal() {
     setCreateOpen(false)
@@ -329,6 +377,29 @@ export default function RecordsPage() {
   const needCount     = stats.new + stats.reviewed
   const approvedPct   = stats.total > 0 ? Math.round(stats.approved / stats.total * 100) : 0
 
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const active = !!document.fullscreenElement
+      setIsFullscreen(active)
+      document.body.classList.toggle('app-fullscreen', active)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.body.classList.remove('app-fullscreen')
+    }
+  }, [])
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen()
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
   return (
     <div className="recPage">
       {/* ── Toolbar ── */}
@@ -340,6 +411,23 @@ export default function RecordsPage() {
           </div>
         </div>
         <div className="recToolbar__actions">
+          <button
+            className="bbo-btn bbo-btn-sm bbo-btn-ghost recToolbar__fsBtn"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Thoát toàn màn hình (ESC)' : 'Xem toàn màn hình'}
+          >
+            {isFullscreen ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                <path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+              </svg>
+            )}
+          </button>
           <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/dashboard')}>
             ← Dashboard
           </button>
@@ -411,6 +499,36 @@ export default function RecordsPage() {
             />
           </div>
 
+          {/* Năm */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Năm</label>
+            <select
+              className="recFilterSelect"
+              value={draft.period_year}
+              onChange={e => {
+                const y = e.target.value
+                // chọn năm/tháng → xóa khoảng ngày thủ công
+                setDraft(d => ({ ...d, period_year: y, period_month: y ? d.period_month : '', date_from: '', date_to: '' }))
+              }}
+            >
+              <option value="">Tất cả năm</option>
+              {availableYears.map(y => <option key={y} value={String(y)}>Năm {y}</option>)}
+            </select>
+          </div>
+
+          {/* Tháng */}
+          <div className="recFilterField">
+            <label className="recFilterLabel">Tháng</label>
+            <select
+              className="recFilterSelect"
+              value={draft.period_month}
+              onChange={e => setDraft(d => ({ ...d, period_month: e.target.value, date_from: '', date_to: '' }))}
+              disabled={!draft.period_year}
+            >
+              {MONTH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+
           {/* Từ ngày */}
           <div className="recFilterField">
             <label className="recFilterLabel">Từ ngày</label>
@@ -418,7 +536,7 @@ export default function RecordsPage() {
               className="recFilterInput"
               type="date"
               value={draft.date_from}
-              onChange={e => setDraft(d => ({ ...d, date_from: e.target.value }))}
+              onChange={e => setDraft(d => ({ ...d, date_from: e.target.value, period_year: '', period_month: '' }))}
             />
           </div>
 
@@ -429,7 +547,7 @@ export default function RecordsPage() {
               className="recFilterInput"
               type="date"
               value={draft.date_to}
-              onChange={e => setDraft(d => ({ ...d, date_to: e.target.value }))}
+              onChange={e => setDraft(d => ({ ...d, date_to: e.target.value, period_year: '', period_month: '' }))}
             />
           </div>
 
@@ -469,12 +587,35 @@ export default function RecordsPage() {
         </div>
 
         <div className="recFilterActions">
-          <button className="bbo-btn bbo-btn-sm bbo-btn-ghost" onClick={resetFilters}>
-            Đặt lại
-          </button>
-          <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={applyFilters}>
-            Tìm record
-          </button>
+          <div className="recFilterActions__btns">
+            <button className="bbo-btn bbo-btn-sm bbo-btn-ghost" onClick={resetFilters}>
+              Đặt lại
+            </button>
+            <button className="bbo-btn bbo-btn-sm bbo-btn-primary" onClick={applyFilters}>
+              Tìm record
+            </button>
+          </div>
+          <div className="recStatsInline">
+            <div className="recStatsInline__item">
+              <span className="recStatsInline__value">{stats.total.toLocaleString()}</span>
+              <span className="recStatsInline__label">Tổng kết quả</span>
+            </div>
+            <div className="recStatsInline__divider" />
+            <div className="recStatsInline__item">
+              <span className="recStatsInline__value recStatsInline__value--need">{needCount.toLocaleString()}</span>
+              <span className="recStatsInline__label">Cần xử lý</span>
+            </div>
+            <div className="recStatsInline__divider" />
+            <div className="recStatsInline__item">
+              <span className="recStatsInline__value recStatsInline__value--approved">{stats.approved.toLocaleString()}</span>
+              <span className="recStatsInline__label">Đã duyệt · {approvedPct}%</span>
+            </div>
+            <div className="recStatsInline__divider" />
+            <div className="recStatsInline__item">
+              <span className="recStatsInline__value recStatsInline__value--flag">{stats.flagged.toLocaleString()}</span>
+              <span className="recStatsInline__label">Bị flag</span>
+            </div>
+          </div>
         </div>
 
         {/* Active filter chips */}
@@ -495,30 +636,6 @@ export default function RecordsPage() {
             ))}
           </div>
         )}
-      </div>
-
-      {/* ── Stats overview ── */}
-      <div className="recStats">
-        <div className="recStatCard">
-          <div className="recStatCard__label">Tổng kết quả</div>
-          <div className="recStatCard__value">{stats.total.toLocaleString()}</div>
-          <div className="recStatCard__sub">{statsTotalSub}</div>
-        </div>
-        <div className="recStatCard recStatCard--need">
-          <div className="recStatCard__label">Cần xử lý</div>
-          <div className="recStatCard__value">{needCount.toLocaleString()}</div>
-          <div className="recStatCard__sub">{stats.new} mới / {stats.reviewed} đang rà soát</div>
-        </div>
-        <div className="recStatCard recStatCard--approved">
-          <div className="recStatCard__label">Đã duyệt</div>
-          <div className="recStatCard__value">{stats.approved.toLocaleString()}</div>
-          <div className="recStatCard__sub">Tỷ lệ {approvedPct}%</div>
-        </div>
-        <div className="recStatCard recStatCard--flag">
-          <div className="recStatCard__label">Bị flag</div>
-          <div className="recStatCard__value">{stats.flagged.toLocaleString()}</div>
-          <div className="recStatCard__sub">Cần kiểm tra lại</div>
-        </div>
       </div>
 
       {/* ── Record list ── */}

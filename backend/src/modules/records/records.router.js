@@ -222,6 +222,17 @@ router.post('/', upload.array('images', 3), async (req, res) => {
   res.status(201).json({ ...record, image_url, image_thumbnail })
 })
 
+// ── GET /api/records/years — distinct years that have records ─────────────────
+router.get('/years', async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT DISTINCT EXTRACT(YEAR FROM created_at)::int AS year
+     FROM records
+     WHERE status != 'deleted'
+     ORDER BY year DESC`
+  )
+  res.json({ data: rows.map(r => r.year) })
+})
+
 // ── GET /api/records/senders — distinct sender names for filter dropdown ──────
 router.get('/senders', async (req, res) => {
   const { rows } = await db.query(

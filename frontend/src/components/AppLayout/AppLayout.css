@@ -521,3 +521,11 @@
 }
 .footer .sep     { margin: 0 8px; color: var(--line); }
 .footer .version { font-family: 'JetBrains Mono', monospace; color: var(--ink-3); }
+
+/* ── Fullscreen mode ─────────────────────────────────────────────────────────── */
+body.app-fullscreen .sidebar  { display: none; }
+body.app-fullscreen .header   { display: none; }
+body.app-fullscreen .footer   { display: none; }
+body.app-fullscreen .mainArea { margin-left: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; }
+body.app-fullscreen .content  { padding-bottom: 0; }
+body.app-fullscreen .recPage  { padding: 20px 24px; }

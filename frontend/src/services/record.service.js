@@ -53,6 +53,11 @@ export async function getSenders() {
   return data // { data: string[] }
 }
 
+export async function getRecordYears() {
+  const { data } = await api.get('/api/records/years')
+  return data // { data: number[] }
+}
+
 export async function getDocumentTypes() {
   const { data } = await api.get('/api/document-types')
   return data // { data: [] }

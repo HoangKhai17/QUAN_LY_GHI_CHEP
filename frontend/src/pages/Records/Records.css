@@ -33,56 +33,60 @@
   gap: 8px;
 }
 
-/* ── Stats row ───────────────────────────────────────────────────────────── */
-.recStats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+.recToolbar__fsBtn {
+  padding: 0 8px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink3);
+}
+.recToolbar__fsBtn:hover { color: var(--ink); }
+
+/* ── Inline stats (inside filter card action row) ────────────────────────── */
+.recStatsInline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
-.recStatCard {
-  background: #fff;
-  border-radius: 12px;
-  border: 1.5px solid var(--line2);
-  padding: 16px 20px 14px;
+.recStatsInline__item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-items: flex-end;
+  gap: 1px;
 }
 
-.recStatCard__label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .7px;
-  text-transform: uppercase;
-  color: var(--ink3);
-  margin-bottom: 2px;
-}
-
-.recStatCard__value {
-  font-size: 34px;
+.recStatsInline__value {
+  font-size: 20px;
   font-weight: 800;
-  color: var(--ink);
   line-height: 1.1;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
+  color: var(--ink);
 }
 
-.recStatCard__sub {
-  font-size: 12.5px;
+.recStatsInline__label {
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--ink3);
-  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
 }
 
-.recStatCard--need .recStatCard__value { color: #d97706; }
-.recStatCard--approved .recStatCard__value { color: var(--primary); }
-.recStatCard--flag .recStatCard__value { color: #e53e3e; }
+.recStatsInline__divider {
+  width: 1px;
+  height: 28px;
+  background: var(--line2);
+  flex-shrink: 0;
+}
+
+.recStatsInline__value--need     { color: #d97706; }
+.recStatsInline__value--approved { color: var(--primary); }
+.recStatsInline__value--flag     { color: #e53e3e; }
 
 @media (max-width: 900px) {
-  .recStats { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 480px) {
-  .recStats { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .recStatCard__value { font-size: 26px; }
+  .recStatsInline { display: none; }
 }
 
 /* ── Advanced filter card ────────────────────────────────────────────────── */
@@ -165,6 +169,7 @@
   box-shadow: 0 0 0 3px rgba(31,143,58,.08);
 }
 .recFilterInput::placeholder { color: var(--ink3); }
+.recFilterSelect:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Status chip multi-select */
 .recFilterChips {
@@ -195,10 +200,17 @@
 /* Filter actions row */
 .recFilterActions {
   display: flex;
-  gap: 8px;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   border-top: 1px solid var(--line2);
   padding-top: 12px;
+}
+
+.recFilterActions__btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Active filter tags */

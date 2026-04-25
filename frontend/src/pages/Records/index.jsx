@@ -114,14 +114,21 @@ export default function RecordsPage() {
   const navigate       = useNavigate()
   const [searchParams] = useSearchParams()
 
+  const [pageSize, setPageSize] = useState(20)
+
   const {
     records, total, page, filters, loading,
     updateFilters, setPage,
     updateRecord, removeRecord,
   } = useRecordsQuery(
     { status: searchParams.get('status') ?? '' },
-    20,
+    pageSize,
   )
+
+  function handlePageSizeChange(size) {
+    setPageSize(size)
+    setPage(1)
+  }
 
   useEffect(() => {
     const s = searchParams.get('status')
@@ -521,8 +528,9 @@ export default function RecordsPage() {
           total={total}
           page={page}
           loading={loading}
-          pageSize={20}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={handlePageSizeChange}
           onRowClick={openDetail}
           onRecordUpdate={(id, patch) => { updateRecord(id, patch); refetchStats() }}
           onRecordRemove={(id) => { removeRecord(id); refetchStats() }}

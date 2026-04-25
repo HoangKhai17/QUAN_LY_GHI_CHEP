@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import useAuthStore from '../../store/auth.store'
 import * as adminSvc from '../../services/admin.service'
+import notify from '../../utils/notify'
 import './Settings.css'
 
 // ── Shared small components ────────────────────────────────────────────────────
@@ -28,18 +29,127 @@ function ActiveDot({ active }) {
   )
 }
 
+// ── User detail modal ──────────────────────────────────────────────────────────
+
+function UserDetailModal({ user, isAdmin, onClose, onRoleChange, onToggleActive, onResetPw }) {
+  const [confirmReset, setConfirmReset] = useState(false)
+  const initials = user.name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
+
+  function fmtDate(iso) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  }
+
+  return (
+    <div className="adm-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="adm-modal">
+        <div className="adm-modal-header">
+          <div className="adm-modal-title">Chi tiết tài khoản</div>
+          <button className="adm-modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="adm-modal-body">
+          {/* Profile block */}
+          <div className="adm-modal-profile">
+            <div className="adm-modal-avatar">{initials}</div>
+            <div>
+              <div className="adm-modal-name">{user.name}</div>
+              <div className="adm-modal-username">@{user.username}</div>
+            </div>
+          </div>
+
+          {/* Info grid */}
+          <div className="adm-modal-grid">
+            <div className="adm-modal-field">
+              <span className="adm-modal-label">Vai trò</span>
+              <span className="adm-modal-value">
+                {isAdmin ? (
+                  <select
+                    className="adm-role-select"
+                    value={user.role}
+                    onChange={e => onRoleChange(user, e.target.value)}
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                ) : (
+                  <RoleBadge role={user.role} />
+                )}
+              </span>
+            </div>
+
+            <div className="adm-modal-field">
+              <span className="adm-modal-label">Trạng thái</span>
+              <span className="adm-modal-value"><ActiveDot active={user.is_active} /></span>
+            </div>
+
+            <div className="adm-modal-field">
+              <span className="adm-modal-label">Đăng nhập lần cuối</span>
+              <span className="adm-modal-value">{fmtDate(user.last_login_at)}</span>
+            </div>
+
+            <div className="adm-modal-field">
+              <span className="adm-modal-label">Ngày tạo</span>
+              <span className="adm-modal-value">{fmtDate(user.created_at)}</span>
+            </div>
+
+            <div className="adm-modal-field">
+              <span className="adm-modal-label">ID hệ thống</span>
+              <span className="adm-modal-value adm-modal-value--mono">{user.id}</span>
+            </div>
+          </div>
+        </div>
+
+        {isAdmin && (
+          <div className="adm-modal-footer">
+            <button
+              className={`bbo-btn bbo-btn-sm${user.is_active ? ' bbo-btn-danger-outline' : ' bbo-btn-primary'}`}
+              onClick={() => onToggleActive(user)}
+            >
+              {user.is_active ? 'Tạm dừng tài khoản' : 'Kích hoạt tài khoản'}
+            </button>
+
+            <div className="adm-modal-footer-right">
+              {confirmReset ? (
+                <span className="adm-inline-confirm">
+                  <span>Xác nhận đặt lại?</span>
+                  <button
+                    className="bbo-btn bbo-btn-sm bbo-btn-danger"
+                    onClick={() => { onResetPw(user); setConfirmReset(false) }}
+                  >Đặt lại</button>
+                  <button className="bbo-btn bbo-btn-sm" onClick={() => setConfirmReset(false)}>Hủy</button>
+                </span>
+              ) : (
+                <button className="bbo-btn bbo-btn-sm" onClick={() => setConfirmReset(true)}>
+                  Đặt lại mật khẩu
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Users ─────────────────────────────────────────────────────────────────
 
 function UsersTab({ currentUserRole }) {
   const isAdmin = currentUserRole === 'admin'
 
-  const [users,      setUsers]      = useState([])
-  const [loading,    setLoading]    = useState(true)
-  const [showAdd,    setShowAdd]    = useState(false)
-  const [addForm,    setAddForm]    = useState({ username: '', name: '', role: 'staff', password: '' })
-  const [addError,   setAddError]   = useState('')
-  const [addLoading, setAddLoading] = useState(false)
-  const [tempPw,     setTempPw]     = useState(null) // { name, pw }
+  const [users,          setUsers]          = useState([])
+  const [loading,        setLoading]        = useState(true)
+  const [showAdd,        setShowAdd]        = useState(false)
+  const [addForm,        setAddForm]        = useState({ username: '', name: '', role: 'staff', password: '' })
+  const [addError,       setAddError]       = useState('')
+  const [addLoading,     setAddLoading]     = useState(false)
+  const [tempPw,         setTempPw]         = useState(null)  // { name, pw }
+  const [selectedUser,   setSelectedUser]   = useState(null)  // user detail modal
+  const [confirmResetId, setConfirmResetId] = useState(null)  // inline reset confirm
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,6 +179,7 @@ function UsersTab({ currentUserRole }) {
       if (res.temp_password) setTempPw({ name: res.name, pw: res.temp_password })
       setAddForm({ username: '', name: '', role: 'staff', password: '' })
       setShowAdd(false)
+      notify.success('Tạo tài khoản thành công', `Tài khoản "${res.name}" đã được tạo`)
       load()
     } catch (err) {
       setAddError(err.response?.data?.error || 'Lỗi tạo tài khoản')
@@ -78,28 +189,38 @@ function UsersTab({ currentUserRole }) {
   async function handleToggleActive(u) {
     try {
       await adminSvc.setUserActive(u.id, !u.is_active)
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: !u.is_active } : x))
+      const updated = { ...u, is_active: !u.is_active }
+      setUsers(prev => prev.map(x => x.id === u.id ? updated : x))
+      if (selectedUser?.id === u.id) setSelectedUser(updated)
+      notify.success(
+        'Cập nhật thành công',
+        `${u.name} đã được ${!u.is_active ? 'kích hoạt' : 'tạm dừng'}`,
+      )
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi cập nhật trạng thái')
+      notify.error('Cập nhật thất bại', err.response?.data?.error || 'Lỗi cập nhật trạng thái')
     }
   }
 
   async function handleRoleChange(u, role) {
     try {
       await adminSvc.changeUserRole(u.id, role)
-      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, role } : x))
+      const updated = { ...u, role }
+      setUsers(prev => prev.map(x => x.id === u.id ? updated : x))
+      if (selectedUser?.id === u.id) setSelectedUser(updated)
+      notify.success('Đổi vai trò thành công', `${u.name} → ${role}`)
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi đổi vai trò')
+      notify.error('Đổi vai trò thất bại', err.response?.data?.error || 'Lỗi đổi vai trò')
     }
   }
 
   async function handleResetPw(u) {
-    if (!window.confirm(`Đặt lại mật khẩu cho ${u.name}?`)) return
+    setConfirmResetId(null)
     try {
       const res = await adminSvc.resetUserPassword(u.id)
       setTempPw({ name: u.name, pw: res.temp_password })
+      notify.success('Đặt lại mật khẩu thành công', `Mật khẩu tạm thời cho ${u.name} đã được tạo`)
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi đặt lại mật khẩu')
+      notify.error('Đặt lại mật khẩu thất bại', err.response?.data?.error || 'Lỗi đặt lại mật khẩu')
     }
   }
 
@@ -191,7 +312,11 @@ function UsersTab({ currentUserRole }) {
 
         {!loading && users.map(u => (
           <div key={u.id} className="adm-table-row adm-table-users">
-            <div>
+            <div
+              className="adm-cell-clickable"
+              onClick={() => setSelectedUser(u)}
+              title="Xem chi tiết"
+            >
               <div className="adm-cell-primary">{u.name}</div>
               <div className="adm-cell-sub">{u.username}</div>
             </div>
@@ -215,17 +340,25 @@ function UsersTab({ currentUserRole }) {
             </div>
             <div className="adm-row-actions">
               {isAdmin && (
-                <>
-                  <button
-                    className={`bbo-btn bbo-btn-sm${u.is_active ? '' : ' bbo-btn-primary'}`}
-                    onClick={() => handleToggleActive(u)}
-                  >
-                    {u.is_active ? 'Tạm dừng' : 'Kích hoạt'}
-                  </button>
-                  <button className="bbo-btn bbo-btn-sm" onClick={() => handleResetPw(u)}>
-                    Đặt lại MK
-                  </button>
-                </>
+                confirmResetId === u.id ? (
+                  <span className="adm-inline-confirm">
+                    <span className="adm-inline-confirm__label">Đặt lại MK?</span>
+                    <button className="adm-confirm-btn adm-confirm-btn--danger" onClick={() => handleResetPw(u)}>Xác nhận</button>
+                    <button className="adm-confirm-btn" onClick={() => setConfirmResetId(null)}>Hủy</button>
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      className={`bbo-btn bbo-btn-sm${u.is_active ? '' : ' bbo-btn-primary'}`}
+                      onClick={() => handleToggleActive(u)}
+                    >
+                      {u.is_active ? 'Tạm dừng' : 'Kích hoạt'}
+                    </button>
+                    <button className="bbo-btn bbo-btn-sm" onClick={() => setConfirmResetId(u.id)}>
+                      Đặt lại MK
+                    </button>
+                  </>
+                )
               )}
             </div>
           </div>
@@ -235,6 +368,17 @@ function UsersTab({ currentUserRole }) {
           <div className="adm-empty">Chưa có tài khoản nào</div>
         )}
       </div>
+
+      {selectedUser && (
+        <UserDetailModal
+          user={selectedUser}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedUser(null)}
+          onRoleChange={handleRoleChange}
+          onToggleActive={handleToggleActive}
+          onResetPw={handleResetPw}
+        />
+      )}
     </div>
   )
 }
@@ -255,6 +399,9 @@ function DocTypesTab() {
   const [addLoading,     setAddLoading]     = useState(false)
   const [fieldForms,     setFieldForms]     = useState({}) // { [typeId]: FieldForm }
   const [fieldErrors,    setFieldErrors]    = useState({}) // { [typeId]: string }
+  const [editFieldId,    setEditFieldId]    = useState(null)  // { typeId, fieldId }
+  const [editFieldForm,  setEditFieldForm]  = useState({})
+  const [savingField,    setSavingField]    = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -283,8 +430,12 @@ function DocTypesTab() {
     try {
       await adminSvc.updateDocumentType(t.id, { is_active: !t.is_active })
       setTypes(prev => prev.map(x => x.id === t.id ? { ...x, is_active: !t.is_active } : x))
+      notify.success(
+        'Cập nhật thành công',
+        `"${t.name}" đã được ${!t.is_active ? 'bật' : 'tắt'}`,
+      )
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi cập nhật')
+      notify.error('Cập nhật thất bại', err.response?.data?.error || 'Lỗi cập nhật')
     }
   }
 
@@ -300,6 +451,7 @@ function DocTypesTab() {
       await adminSvc.createDocumentType(addForm)
       setAddForm({ code: '', name: '', description: '' })
       setShowAdd(false)
+      notify.success('Tạo loại tài liệu thành công', `Loại "${addForm.name}" đã được thêm`)
       load()
     } catch (err) {
       setAddError(err.response?.data?.error || 'Lỗi tạo loại tài liệu')
@@ -318,21 +470,30 @@ function DocTypesTab() {
       const newField = await adminSvc.addDocumentTypeField(typeId, f)
       setExpandedFields(prev => ({ ...prev, [typeId]: [...(prev[typeId] ?? []), newField] }))
       setFieldForms(prev => ({ ...prev, [typeId]: { ...EMPTY_FIELD_FORM } }))
+      notify.success('Thêm trường thành công', `Trường "${f.label}" đã được thêm`)
     } catch (err) {
       setFieldErrors(prev => ({ ...prev, [typeId]: err.response?.data?.error || 'Lỗi thêm trường' }))
     }
   }
 
+  const [confirmDeleteField, setConfirmDeleteField] = useState(null) // { typeId, fieldId, label }
+
   async function handleDeleteField(typeId, fieldId) {
-    if (!window.confirm('Xóa trường này? Toàn bộ dữ liệu đã nhập cho trường này sẽ bị mất.')) return
+    setConfirmDeleteField({ typeId, fieldId })
+  }
+
+  async function doDeleteField() {
+    const { typeId, fieldId } = confirmDeleteField
+    setConfirmDeleteField(null)
     try {
       await adminSvc.deleteDocumentTypeField(typeId, fieldId)
       setExpandedFields(prev => ({
         ...prev,
         [typeId]: (prev[typeId] ?? []).filter(f => f.id !== fieldId),
       }))
+      notify.success('Xóa trường thành công', 'Trường đã được xóa khỏi loại tài liệu')
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi xóa trường')
+      notify.error('Xóa trường thất bại', err.response?.data?.error || 'Lỗi xóa trường')
     }
   }
 
@@ -341,6 +502,40 @@ function DocTypesTab() {
       ...prev,
       [typeId]: { ...EMPTY_FIELD_FORM, ...prev[typeId], [key]: val },
     }))
+  }
+
+  function startEditField(typeId, f) {
+    setEditFieldId({ typeId, fieldId: f.id })
+    setEditFieldForm({
+      label:         f.label,
+      data_type:     f.data_type,
+      unit:          f.unit ?? '',
+      is_filterable: f.is_filterable ?? false,
+      display_order: f.display_order ?? 0,
+    })
+  }
+
+  function cancelEditField() {
+    setEditFieldId(null)
+    setEditFieldForm({})
+  }
+
+  async function handleSaveField(typeId, fieldId) {
+    setSavingField(true)
+    try {
+      const updated = await adminSvc.updateDocumentTypeField(typeId, fieldId, editFieldForm)
+      setExpandedFields(prev => ({
+        ...prev,
+        [typeId]: (prev[typeId] ?? []).map(f => f.id === fieldId ? { ...f, ...updated } : f),
+      }))
+      setEditFieldId(null)
+      setEditFieldForm({})
+      notify.success('Cập nhật thành công', `Trường "${editFieldForm.label}" đã được lưu`)
+    } catch (err) {
+      notify.error('Cập nhật thất bại', err.response?.data?.error || 'Lỗi cập nhật trường')
+    } finally {
+      setSavingField(false)
+    }
   }
 
   return (
@@ -454,25 +649,104 @@ function DocTypesTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(expandedFields[t.id] ?? []).map(f => (
-                        <tr key={f.id}>
-                          <td><code className="adm-code">{f.field_key}</code></td>
-                          <td>{f.label}</td>
-                          <td><span className="adm-dtype-badge">{f.data_type}</span></td>
-                          <td>{f.unit || '—'}</td>
-                          <td>{f.is_filterable ? '✓' : '—'}</td>
-                          <td>{f.display_order}</td>
-                          <td>
-                            <button
-                              className="bbo-btn bbo-btn-sm bbo-btn-danger"
-                              style={{ padding: '0 10px', height: 28 }}
-                              onClick={() => handleDeleteField(t.id, f.id)}
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {(expandedFields[t.id] ?? []).map(f => {
+                        const isEditing = editFieldId?.typeId === t.id && editFieldId?.fieldId === f.id
+                        if (isEditing) {
+                          return (
+                            <tr key={f.id} className="adm-field-row--editing">
+                              <td><code className="adm-code">{f.field_key}</code></td>
+                              <td>
+                                <input
+                                  className="adm-input adm-input-sm"
+                                  style={{ width: '100%', minWidth: 100 }}
+                                  value={editFieldForm.label}
+                                  onChange={e => setEditFieldForm(p => ({ ...p, label: e.target.value }))}
+                                  autoFocus
+                                />
+                              </td>
+                              <td>
+                                <select
+                                  className="adm-select adm-select-sm"
+                                  value={editFieldForm.data_type}
+                                  onChange={e => setEditFieldForm(p => ({ ...p, data_type: e.target.value }))}
+                                >
+                                  <option value="text">text</option>
+                                  <option value="number">number</option>
+                                  <option value="money">money</option>
+                                  <option value="date">date</option>
+                                  <option value="datetime">datetime</option>
+                                  <option value="boolean">boolean</option>
+                                </select>
+                              </td>
+                              <td>
+                                <input
+                                  className="adm-input adm-input-sm"
+                                  style={{ width: 72 }}
+                                  placeholder="Đơn vị"
+                                  value={editFieldForm.unit}
+                                  onChange={e => setEditFieldForm(p => ({ ...p, unit: e.target.value }))}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={editFieldForm.is_filterable}
+                                  onChange={e => setEditFieldForm(p => ({ ...p, is_filterable: e.target.checked }))}
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  className="adm-input adm-input-sm"
+                                  type="number"
+                                  min="1"
+                                  style={{ width: 56 }}
+                                  value={editFieldForm.display_order}
+                                  onChange={e => setEditFieldForm(p => ({ ...p, display_order: Number(e.target.value) }))}
+                                />
+                              </td>
+                              <td>
+                                <div className="adm-field-actions">
+                                  <button
+                                    className="adm-confirm-btn adm-confirm-btn--primary"
+                                    onClick={() => handleSaveField(t.id, f.id)}
+                                    disabled={savingField}
+                                    title="Lưu"
+                                  >{savingField ? '…' : '✓'}</button>
+                                  <button
+                                    className="adm-confirm-btn"
+                                    onClick={cancelEditField}
+                                    title="Hủy"
+                                  >✕</button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        }
+                        return (
+                          <tr key={f.id}>
+                            <td><code className="adm-code">{f.field_key}</code></td>
+                            <td>{f.label}</td>
+                            <td><span className="adm-dtype-badge">{f.data_type}</span></td>
+                            <td>{f.unit || '—'}</td>
+                            <td>{f.is_filterable ? '✓' : '—'}</td>
+                            <td>{f.display_order}</td>
+                            <td>
+                              <div className="adm-field-actions">
+                                <button
+                                  className="adm-confirm-btn"
+                                  onClick={() => startEditField(t.id, f)}
+                                  title="Sửa trường"
+                                >✎</button>
+                                <button
+                                  className="adm-confirm-btn adm-confirm-btn--danger"
+                                  onClick={() => handleDeleteField(t.id, f.id)}
+                                  title="Xóa trường"
+                                >✕</button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -535,6 +809,27 @@ function DocTypesTab() {
           <div className="adm-empty">Chưa có loại tài liệu nào</div>
         )}
       </div>
+
+      {/* Confirm delete field dialog */}
+      {confirmDeleteField && (
+        <div className="adm-modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmDeleteField(null)}>
+          <div className="adm-modal" style={{ maxWidth: 400 }}>
+            <div className="adm-modal-header">
+              <div className="adm-modal-title">Xác nhận xóa trường</div>
+              <button className="adm-modal-close" onClick={() => setConfirmDeleteField(null)}>✕</button>
+            </div>
+            <div className="adm-modal-body">
+              <p style={{ fontSize: 14, color: 'var(--ink2)', lineHeight: 1.6, margin: 0 }}>
+                Toàn bộ dữ liệu đã nhập cho trường này sẽ bị mất vĩnh viễn và không thể khôi phục.
+              </p>
+            </div>
+            <div className="adm-modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button className="bbo-btn bbo-btn-sm" onClick={() => setConfirmDeleteField(null)}>Hủy</button>
+              <button className="bbo-btn bbo-btn-sm bbo-btn-danger" onClick={doDeleteField}>Xóa trường</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -571,6 +866,7 @@ function CategoriesTab() {
       await adminSvc.createCategory(addForm)
       setAddForm({ name: '', description: '', color: '#1890ff' })
       setShowAdd(false)
+      notify.success('Tạo danh mục thành công', `Danh mục "${addForm.name}" đã được thêm`)
       load()
     } catch (err) {
       setAddError(err.response?.data?.error || 'Lỗi tạo danh mục')
@@ -581,8 +877,12 @@ function CategoriesTab() {
     try {
       await adminSvc.updateCategory(c.id, { is_active: !c.is_active })
       setCats(prev => prev.map(x => x.id === c.id ? { ...x, is_active: !c.is_active } : x))
+      notify.success(
+        'Cập nhật thành công',
+        `"${c.name}" đã được ${!c.is_active ? 'bật' : 'tắt'}`,
+      )
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi cập nhật')
+      notify.error('Cập nhật thất bại', err.response?.data?.error || 'Lỗi cập nhật')
     }
   }
 
@@ -592,8 +892,9 @@ function CategoriesTab() {
       await adminSvc.updateCategory(c.id, editForm)
       setCats(prev => prev.map(x => x.id === c.id ? { ...x, ...editForm } : x))
       setEditId(null)
+      notify.success('Lưu thành công', `Danh mục "${editForm.name}" đã được cập nhật`)
     } catch (err) {
-      alert(err.response?.data?.error || 'Lỗi lưu danh mục')
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu danh mục')
     } finally { setEditLoading(false) }
   }
 

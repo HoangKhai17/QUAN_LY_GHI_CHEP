@@ -39,6 +39,12 @@ function IconChevronDown() {
 function IconLogout() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
 }
+function IconPanelCollapse() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><polyline points="16 8 11 12 16 16"/></svg>
+}
+function IconPanelExpand() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><polyline points="12 8 17 12 12 16"/></svg>
+}
 function IconUser() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 }
@@ -79,8 +85,9 @@ export default function AppLayout() {
   const { user, logout, accessToken } = useAuthStore()
   const { pendingCount, events, setPendingCount, pushNewRecord, syncPending } = useNotificationStore()
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [bellOpen, setBellOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
+  const [menuOpen,  setMenuOpen]  = useState(false)
+  const [bellOpen,  setBellOpen]  = useState(false)
   const pillRef = useRef(null)
   const bellRef = useRef(null)
 
@@ -148,10 +155,10 @@ export default function AppLayout() {
   }, [menuOpen])
 
   return (
-    <div className="appShell">
+    <div className="appShell" style={collapsed ? { '--sidebar-w': '64px' } : {}}>
 
       {/* ── Sidebar ── */}
-      <aside className="sidebar">
+      <aside className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`}>
         {/* Brand */}
         <div className="sidebarBrand">
           <div className="sidebarLogoWrap">
@@ -161,6 +168,13 @@ export default function AppLayout() {
             <div className="name">BBO Records</div>
             <div className="sub">Internal System</div>
           </div>
+          <button
+            className="sidebarToggle"
+            onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+          >
+            {collapsed ? <IconPanelExpand /> : <IconPanelCollapse />}
+          </button>
         </div>
 
         {/* Navigation */}
@@ -172,9 +186,10 @@ export default function AppLayout() {
                 key={to}
                 to={to}
                 className={({ isActive }) => `navItem${isActive ? ' active' : ''}`}
+                title={collapsed ? label : undefined}
               >
                 <Icon />
-                {label}
+                <span className="navLabel">{label}</span>
               </NavLink>
             ))}
           </div>
@@ -188,16 +203,17 @@ export default function AppLayout() {
                 key={to}
                 to={to}
                 className={({ isActive }) => `navItem${isActive ? ' active' : ''}`}
+                title={collapsed ? label : undefined}
               >
                 <Icon />
-                {label}
+                <span className="navLabel">{label}</span>
               </NavLink>
             ))}
           </div>
         </nav>
 
         {/* Sidebar user card */}
-        <div className="sidebarUser">
+        <div className="sidebarUser" title={collapsed ? (user?.name ?? 'User') : undefined}>
           <div className="sidebarUserAvatar">{initials}</div>
           <div className="sidebarUserInfo">
             <div className="sidebarUserName">{user?.name ?? 'User'}</div>

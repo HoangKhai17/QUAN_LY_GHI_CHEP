@@ -51,7 +51,9 @@
   position: fixed;
   top: 0; left: 0; bottom: 0;
   z-index: 100;
+  overflow-x: hidden;
   overflow-y: auto;
+  transition: width 0.22s cubic-bezier(.4,0,.2,1);
 }
 
 /* Brand */
@@ -182,6 +184,7 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  transition: margin-left 0.22s cubic-bezier(.4,0,.2,1);
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */
@@ -445,6 +448,60 @@
 .dropdownItem:hover { background: var(--canvas); }
 .dropdownItem--danger { color: var(--danger); }
 .dropdownItem--danger:hover { background: var(--danger-tint); }
+
+/* ── Sidebar toggle button ──────────────────────────────────────────────────── */
+.sidebarToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.55);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.sidebarToggle:hover {
+  background: rgba(255,255,255,.14);
+  border-color: rgba(255,255,255,.22);
+  color: #fff;
+}
+
+/* ── Collapsed sidebar ──────────────────────────────────────────────────────── */
+.sidebar--collapsed .sidebarBrand {
+  justify-content: center;
+  padding: 18px 10px;
+  flex-direction: column;
+  gap: 10px;
+}
+.sidebar--collapsed .sidebarBrandText { display: none; }
+.sidebar--collapsed .sidebarToggle   { margin-left: 0; }
+
+.sidebar--collapsed .navSectionLabel { display: none; }
+.sidebar--collapsed .navDivider      { display: none; }
+
+.sidebar--collapsed .navItem {
+  justify-content: center;
+  padding: 12px 0;
+  margin: 3px 8px;
+  gap: 0;
+}
+.sidebar--collapsed .navLabel { display: none; }
+.sidebar--collapsed .navIcon  { opacity: .75; }
+.sidebar--collapsed .navItem:hover .navIcon,
+.sidebar--collapsed .navItem.active .navIcon { opacity: 1; }
+
+.sidebar--collapsed .sidebarUser {
+  justify-content: center;
+  padding: 10px 8px;
+  margin: 8px;
+}
+.sidebar--collapsed .sidebarUserInfo { display: none; }
+
+.sidebar--collapsed .sidebarVersion  { display: none; }
 
 /* ── Content ─────────────────────────────────────────────────────────────────── */
 .content { flex: 1; padding: 0; padding-bottom: 32px; }

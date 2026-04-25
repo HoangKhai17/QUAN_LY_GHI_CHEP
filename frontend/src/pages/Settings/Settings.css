@@ -67,7 +67,7 @@
 .adm-table-head,
 .adm-table-row {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   padding: 0 22px;
   align-items: center;
 }
@@ -81,8 +81,14 @@
   letter-spacing: .4px;
   border-bottom: 1px solid var(--line2);
 }
+/* Prevent header text from wrapping */
+.adm-table-head > div {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .adm-table-row {
-  min-height: 70px;
+  min-height: 62px;
   border-bottom: 1px solid var(--line2);
   transition: background .12s;
 }
@@ -91,8 +97,10 @@
 .adm-row-clickable:hover { background: #f8fafc; }
 .adm-row--expanded { background: #f4f7fa !important; }
 
-/* Column templates */
-.adm-table-users   { grid-template-columns: 1fr 120px 120px 140px 200px; }
+/* Column templates
+   users:    account(flex) | role | status | last-login | actions
+   The 1fr column is capped with max-width to avoid excessive width on wide screens */
+.adm-table-users   { grid-template-columns: minmax(200px, 1fr) 130px 115px 155px 225px; }
 .adm-table-doctypes { grid-template-columns: 1fr 1fr 120px 150px; }
 .adm-table-cats    { grid-template-columns: 1fr 1fr 120px 180px; }
 
@@ -106,7 +114,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .adm-expand-chevron {
   color: var(--ink3);
@@ -297,6 +305,34 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+/* Field row action buttons */
+.adm-field-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Editing row highlight */
+.adm-field-row--editing td {
+  padding: 6px 8px;
+  background: #f0f7ff;
+}
+
+/* Primary (green) variant for adm-confirm-btn */
+.adm-confirm-btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.adm-confirm-btn--primary:hover:not(:disabled) {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+.adm-confirm-btn--primary:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
 /* ── Add-field form (inside panel) ───────────────────────────────────────── */
 .adm-add-field-form { margin-top: 14px; }
 .adm-field-form-row {
@@ -339,10 +375,223 @@
   padding: 4px 0;
 }
 
+/* ── Clickable cell ───────────────────────────────────────────────────────── */
+.adm-cell-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background .12s;
+}
+.adm-cell-clickable:hover {
+  background: var(--primary-tint);
+}
+.adm-cell-clickable:hover .adm-cell-primary {
+  color: var(--primary);
+}
+
+/* ── Inline confirm ───────────────────────────────────────────────────────── */
+.adm-inline-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  width: 100%;
+}
+.adm-inline-confirm__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+/* Compact buttons used only inside inline confirm — smaller than bbo-btn-sm */
+.adm-confirm-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1.5px solid var(--line2);
+  background: #fff;
+  color: var(--ink2);
+  cursor: pointer;
+  font-family: 'Montserrat', sans-serif;
+  flex-shrink: 0;
+  transition: background .12s, border-color .12s;
+}
+.adm-confirm-btn:hover { background: var(--canvas); border-color: var(--ink3); }
+.adm-confirm-btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.adm-confirm-btn--danger:hover { background: #b53228; border-color: #b53228; }
+
+/* ── User detail modal ────────────────────────────────────────────────────── */
+.adm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: admOverlayIn .15s ease;
+}
+@keyframes admOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.adm-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15,23,42,.18);
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  animation: admModalIn .18s cubic-bezier(.34,1.26,.64,1);
+  overflow: hidden;
+}
+@keyframes admModalIn {
+  from { opacity: 0; transform: scale(.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.adm-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid var(--line2);
+}
+.adm-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.2px;
+}
+.adm-modal-close {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: var(--canvas);
+  color: var(--ink3);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.adm-modal-close:hover { background: var(--line2); color: var(--ink); }
+
+.adm-modal-body { padding: 22px; }
+
+/* Profile block inside modal */
+.adm-modal-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line2);
+}
+.adm-modal-avatar {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0%, #a3c644 100%);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700;
+  flex-shrink: 0;
+}
+.adm-modal-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.2px;
+}
+.adm-modal-username {
+  font-size: 13px;
+  color: var(--ink3);
+  margin-top: 2px;
+}
+
+/* Info grid */
+.adm-modal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.adm-modal-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--canvas);
+  border-radius: 8px;
+  gap: 12px;
+}
+.adm-modal-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  white-space: nowrap;
+}
+.adm-modal-value {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+}
+.adm-modal-value--mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+
+/* Modal footer */
+.adm-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line2);
+  background: #fafbfc;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.adm-modal-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Danger outline button variant */
+.bbo-btn-danger-outline {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.bbo-btn-danger-outline:hover {
+  background: var(--danger-tint);
+}
+.bbo-btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.bbo-btn-danger:hover {
+  background: #b53228;
+}
+
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
   .adm-page { padding: 20px 16px 0; }
-  .adm-table-users { grid-template-columns: 1fr 100px 100px 110px 1fr; }
+  .adm-table-users    { grid-template-columns: minmax(160px, 1fr) 110px 100px 135px 210px; }
   .adm-table-doctypes { grid-template-columns: 1fr 130px 100px 130px; }
-  .adm-table-cats { grid-template-columns: 1fr 130px 100px 150px; }
+  .adm-table-cats     { grid-template-columns: 1fr 130px 100px 150px; }
 }

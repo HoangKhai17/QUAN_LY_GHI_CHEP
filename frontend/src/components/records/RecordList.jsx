@@ -28,8 +28,9 @@ export default function RecordList({
   loading,
   onPageChange,
   onRowClick,
-  onRecordUpdate,  // (id, patch) => void
-  onRecordRemove,  // (id)        => void
+  onRecordUpdate,    // (id, patch) => void
+  onRecordRemove,    // (id)        => void
+  onPageSizeChange,  // (size)      => void
   pageSize = 10,
   // columns to hide
   hideCols = [],
@@ -359,34 +360,69 @@ export default function RecordList({
       </div>
 
       {/* ── Pagination ── */}
-      {!loading && total > pageSize && (
+      {!loading && (
         <div className="recListPagination">
           <span className="recListPagination__info">
-            Hiển thị {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} / {total} record
+            {total > 0
+              ? `Hiển thị ${Math.min((page - 1) * pageSize + 1, total)}–${Math.min(page * pageSize, total)} / ${total} record`
+              : '0 record'}
           </span>
-          <div className="pager">
-            <button
-              className="pager-btn"
-              disabled={page <= 1}
-              onClick={() => onPageChange?.(page - 1)}
-            >‹</button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              const p = page <= 3 ? i + 1 : page - 2 + i
-              if (p < 1 || p > totalPages) return null
-              return (
+
+          {total > pageSize && (
+            <div className="pager">
+              <button
+                className="pager-btn"
+                disabled={page <= 1}
+                onClick={() => onPageChange?.(1)}
+                title="Trang đầu"
+              >«</button>
+              <button
+                className="pager-btn"
+                disabled={page <= 1}
+                onClick={() => onPageChange?.(page - 1)}
+                title="Trang trước"
+              >‹</button>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                const p = page <= 3 ? i + 1 : page - 2 + i
+                if (p < 1 || p > totalPages) return null
+                return (
+                  <button
+                    key={p}
+                    className={`pager-btn${p === page ? ' active' : ''}`}
+                    onClick={() => onPageChange?.(p)}
+                  >{p}</button>
+                )
+              })}
+              <button
+                className="pager-btn"
+                disabled={page >= totalPages}
+                onClick={() => onPageChange?.(page + 1)}
+                title="Trang sau"
+              >›</button>
+              <button
+                className="pager-btn"
+                disabled={page >= totalPages}
+                onClick={() => onPageChange?.(totalPages)}
+                title="Trang cuối"
+              >»</button>
+            </div>
+          )}
+
+          {onPageSizeChange && (
+            <div className="recListPageSizer">
+              <span className="recListPageSizer__label">Hiển thị</span>
+              {[20, 50, 100].map(size => (
                 <button
-                  key={p}
-                  className={`pager-btn${p === page ? ' active' : ''}`}
-                  onClick={() => onPageChange?.(p)}
-                >{p}</button>
-              )
-            })}
-            <button
-              className="pager-btn"
-              disabled={page >= totalPages}
-              onClick={() => onPageChange?.(page + 1)}
-            >›</button>
-          </div>
+                  key={size}
+                  className={`recListPageSizer__btn${pageSize === size ? ' recListPageSizer__btn--active' : ''}`}
+                  onClick={() => onPageSizeChange(size)}
+                >
+                  {size}
+                </button>
+              ))}
+              <span className="recListPageSizer__label">/ trang</span>
+            </div>
+          )}
         </div>
       )}
 

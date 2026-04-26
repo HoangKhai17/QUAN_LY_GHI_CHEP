@@ -540,3 +540,4 @@ body.app-fullscreen .mainArea { margin-left: 0; height: 100vh; overflow-y: auto;
 body.app-fullscreen .content  { padding-bottom: 0; }
 body.app-fullscreen .recPage  { padding: 20px 24px; }
 body.app-fullscreen .dtv-page { padding: 20px 24px; }
+body.app-fullscreen .dashPage { padding: 20px 28px; }

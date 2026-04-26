@@ -281,8 +281,8 @@ router.get('/stats', async (req, res) => {
       `to_tsvector('simple', coalesce(r.note,'') || ' ' || coalesce(r.ocr_text,'') || ' ' || coalesce(r.sender_name,'')) @@ plainto_tsquery('simple', $${params.push(search.trim())})`
     )
   }
-  if (date_from) conditions.push(`r.received_at >= $${params.push(date_from)}`)
-  if (date_to)   conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+  if (date_from) conditions.push(`r.received_at::date >= $${params.push(date_from)}::date`)
+  if (date_to)   conditions.push(`r.received_at::date <= $${params.push(date_to)}::date`)
 
   const { rows } = await db.query(
     `SELECT r.status::text AS status, COUNT(*)::int AS count
@@ -373,8 +373,8 @@ router.get('/', async (req, res) => {
   }
 
   if (extraction_status) conditions.push(`r.extraction_status = $${params.push(extraction_status)}`)
-  if (date_from)         conditions.push(`r.received_at >= $${params.push(date_from)}`)
-  if (date_to)           conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+  if (date_from)         conditions.push(`r.received_at::date >= $${params.push(date_from)}::date`)
+  if (date_to)           conditions.push(`r.received_at::date <= $${params.push(date_to)}::date`)
 
   // ── Dynamic field-value filters: ?fv[field_key][op]=value ──
   const fvFilters = req.query.fv
@@ -482,8 +482,8 @@ router.get('/aggregations', async (req, res) => {
   }
 
   if (extraction_status) conditions.push(`r.extraction_status = $${params.push(extraction_status)}`)
-  if (date_from)         conditions.push(`r.received_at >= $${params.push(date_from)}`)
-  if (date_to)           conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+  if (date_from)         conditions.push(`r.received_at::date >= $${params.push(date_from)}::date`)
+  if (date_to)           conditions.push(`r.received_at::date <= $${params.push(date_to)}::date`)
 
   const fvFilters = req.query.fv
   if (fvFilters && typeof fvFilters === 'object') {

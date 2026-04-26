@@ -22,7 +22,6 @@ const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
 
 router.use(requireAuth)
-router.use(requireRole('admin', 'manager'))
 
 // ── Shared filter builder ─────────────────────────────────────────────────────
 function buildFilters(query) {
@@ -30,8 +29,8 @@ function buildFilters(query) {
   const conditions = []
   const params     = []
 
-  if (date_from)        conditions.push(`r.received_at >= $${params.push(date_from)}`)
-  if (date_to)          conditions.push(`r.received_at <= ($${params.push(date_to)})::date + interval '1 day'`)
+  if (date_from)        conditions.push(`r.received_at::date >= $${params.push(date_from)}::date`)
+  if (date_to)          conditions.push(`r.received_at::date <= $${params.push(date_to)}::date`)
   if (document_type_id) conditions.push(`r.document_type_id = $${params.push(document_type_id)}::uuid`)
   if (category_id)      conditions.push(`r.category_id = $${params.push(category_id)}::uuid`)
   if (platform)         conditions.push(`r.platform = $${params.push(platform)}`)
@@ -39,7 +38,7 @@ function buildFilters(query) {
   return { conditions, params }
 }
 
-// ── GET /api/reports/summary ──────────────────────────────────────────────────
+// ── GET /api/reports/summary (all authenticated users) ───────────────────────
 router.get('/summary', async (req, res) => {
   const { conditions, params } = buildFilters(req.query)
   conditions.push(`r.status != 'deleted'`)
@@ -61,8 +60,8 @@ router.get('/summary', async (req, res) => {
        FROM records r LEFT JOIN categories c ON r.category_id = c.id
        ${where} GROUP BY c.name, c.color ORDER BY count DESC`, params),
     db.query(
-      `SELECT received_at::date AS date, COUNT(*)::int AS count
-       FROM records r ${where} GROUP BY received_at::date ORDER BY date`, params),
+      `SELECT received_at::date::text AS date, COUNT(*)::int AS count
+       FROM records r ${where} GROUP BY 1 ORDER BY 1`, params),
   ])
 
   res.json({
@@ -74,8 +73,8 @@ router.get('/summary', async (req, res) => {
   })
 })
 
-// ── GET /api/reports/financial ────────────────────────────────────────────────
-router.get('/financial', async (req, res) => {
+// ── GET /api/reports/financial (admin/manager only) ──────────────────────────
+router.get('/financial', requireRole('admin', 'manager'), async (req, res) => {
   const { include_unapproved } = req.query
   const { conditions, params } = buildFilters(req.query)
 
@@ -112,8 +111,8 @@ router.get('/financial', async (req, res) => {
   res.json({ total_records: totalRecords, aggregations: rows })
 })
 
-// ── GET /api/reports/by-type/:code ────────────────────────────────────────────
-router.get('/by-type/:code', async (req, res) => {
+// ── GET /api/reports/by-type/:code (admin/manager only) ──────────────────────
+router.get('/by-type/:code', requireRole('admin', 'manager'), async (req, res) => {
   const { rows: [docType] } = await db.query(
     `SELECT id, code, name FROM document_types WHERE code = $1 AND is_active = TRUE`,
     [req.params.code]

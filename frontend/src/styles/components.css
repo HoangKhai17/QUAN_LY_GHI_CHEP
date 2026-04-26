@@ -151,9 +151,9 @@
   margin-bottom: 4px;
 }
 .stat-value {
-  font-size: 32px; font-weight: 800;
+  font-size: 38px; font-weight: 800;
   color: var(--ink);
-  letter-spacing: -1px; line-height: 1;
+  letter-spacing: -1.5px; line-height: 1;
 }
 .stat-delta-up      { font-size: 12px; font-weight: 700; color: var(--primary); }
 .stat-delta-down    { font-size: 12px; font-weight: 700; color: var(--danger); }

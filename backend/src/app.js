@@ -115,6 +115,7 @@ app.use(errorHandler)
 const PORT = process.env.PORT || 3000
 server.listen(PORT, () => {
   logger.info('server.started', { port: PORT, env: process.env.NODE_ENV })
+  require('./config/db').loadTimezone()
   registerPlatformWebhooks()
 })
 

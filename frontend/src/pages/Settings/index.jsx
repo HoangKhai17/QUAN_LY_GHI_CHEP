@@ -1125,6 +1125,114 @@ function CategoriesTab() {
   )
 }
 
+// ── Tab: General ──────────────────────────────────────────────────────────────
+
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho_Chi_Minh (UTC+7) — Việt Nam' },
+  { value: 'Asia/Bangkok',     label: 'Asia/Bangkok (UTC+7) — Thái Lan' },
+  { value: 'Asia/Singapore',   label: 'Asia/Singapore (UTC+8) — Singapore' },
+  { value: 'Asia/Tokyo',       label: 'Asia/Tokyo (UTC+9) — Nhật Bản' },
+  { value: 'Asia/Seoul',       label: 'Asia/Seoul (UTC+9) — Hàn Quốc' },
+  { value: 'Asia/Shanghai',    label: 'Asia/Shanghai (UTC+8) — Trung Quốc' },
+  { value: 'UTC',              label: 'UTC (UTC+0) — Phối hợp Quốc tế' },
+  { value: 'Europe/London',    label: 'Europe/London (UTC+0/+1)' },
+  { value: 'Europe/Paris',     label: 'Europe/Paris (UTC+1/+2)' },
+  { value: 'America/New_York', label: 'America/New_York (UTC-5/-4)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (UTC-8/-7)' },
+]
+
+function GeneralTab() {
+  const [settings,  setSettings]  = useState(null)
+  const [loading,   setLoading]   = useState(true)
+  const [tzValue,   setTzValue]   = useState('Asia/Ho_Chi_Minh')
+  const [saving,    setSaving]    = useState(false)
+  const [saved,     setSaved]     = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminSvc.getSettings()
+      setSettings(res.data)
+      const tz = res.data?.app_timezone?.value || 'Asia/Ho_Chi_Minh'
+      setTzValue(tz)
+    } catch {
+      notify.error('Tải cài đặt thất bại', 'Lỗi kết nối')
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSaveTz() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await adminSvc.updateSetting('app_timezone', tzValue)
+      setSaved(true)
+      notify.success('Đã lưu', `Múi giờ hệ thống: ${tzValue}`)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu cài đặt')
+    } finally { setSaving(false) }
+  }
+
+  const currentTz = settings?.app_timezone
+
+  return (
+    <div className="adm-section">
+      <div className="adm-section-header">
+        <div>
+          <div className="adm-section-title">Cài đặt chung</div>
+          <div className="adm-section-sub">Cấu hình múi giờ và các tham số vận hành hệ thống</div>
+        </div>
+      </div>
+
+      <div className="bbo-card" style={{ padding: '24px 28px' }}>
+        <div className="apikey-section-header" style={{ marginBottom: 6 }}>
+          <div className="apikey-section-icon" style={{ background: '#f0fdf4' }}>🕐</div>
+          <div className="apikey-section-title">Múi giờ hệ thống</div>
+        </div>
+        <div className="apikey-section-desc" style={{ marginBottom: 18 }}>
+          Múi giờ áp dụng cho toàn bộ hệ thống — ảnh hưởng đến bộ lọc ngày, báo cáo, biểu đồ và hiển thị thời gian trên tất cả trang.
+          {currentTz?.source === 'env' && (
+            <span className="apikey-source-badge" style={{ marginLeft: 8 }}>đang dùng env</span>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="skeleton" style={{ height: 38, width: 340, borderRadius: 8 }} />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <select
+              className="adm-select"
+              style={{ minWidth: 320 }}
+              value={tzValue}
+              onChange={e => { setTzValue(e.target.value); setSaved(false) }}
+            >
+              {TIMEZONE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <button
+              className="bbo-btn bbo-btn-sm bbo-btn-primary"
+              onClick={handleSaveTz}
+              disabled={saving}
+            >
+              {saving ? 'Đang lưu…' : saved ? '✓ Đã lưu' : 'Lưu'}
+            </button>
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, padding: '10px 14px', background: '#f8fbff', borderRadius: 8, border: '1px solid #dde8f5' }}>
+          <div style={{ fontSize: 12, color: 'var(--ink3)', lineHeight: 1.7 }}>
+            <strong style={{ color: 'var(--ink2)' }}>Lưu ý:</strong> Thay đổi có hiệu lực ngay lập tức với các kết nối DB mới.
+            Các kết nối đang hoạt động sẽ được cập nhật trong vòng 30 giây.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: API Keys ──────────────────────────────────────────────────────────────
 
 function ApiKeyField({ label, desc, settingKey, isSecret, info, onSave, onClear }) {
@@ -1404,6 +1512,7 @@ function ApiKeysTab() {
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
+  { key: 'general',    label: 'Cài đặt chung', adminOnly: true },
   { key: 'users',      label: 'Người dùng' },
   { key: 'doctypes',   label: 'Loại tài liệu' },
   { key: 'categories', label: 'Danh mục' },
@@ -1436,6 +1545,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
+      {activeTab === 'general'    && isAdmin && <GeneralTab />}
       {activeTab === 'users'      && <UsersTab currentUserRole={user?.role} />}
       {activeTab === 'doctypes'   && <DocTypesTab />}
       {activeTab === 'categories' && <CategoriesTab />}

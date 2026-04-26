@@ -73,6 +73,7 @@ function _cacheInvalidate(key) { _cache.delete(key) }
 
 // Mapping: setting key → env var name (fallback when DB has no value)
 const ENV_MAP = {
+  app_timezone:            'APP_TIMEZONE',
   telegram_bot_token:      'TELEGRAM_BOT_TOKEN',
   telegram_webhook_secret: 'TELEGRAM_WEBHOOK_SECRET',
   zalo_oa_token:           'ZALO_OA_TOKEN',

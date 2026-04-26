@@ -5,7 +5,7 @@ const { requireAuth } = require('../../middlewares/auth.middleware')
 // GET /api/dashboard/summary
 router.get('/summary', requireAuth, async (req, res) => {
   const [todayResult, weekResult, pendingResult, flaggedResult] = await Promise.all([
-    // Thống kê hôm nay theo từng trạng thái
+    // Thống kê hôm nay — dùng session timezone (set tại lớp DB pool)
     db.query(
       `SELECT
          COUNT(*)                                              AS total,
@@ -14,17 +14,16 @@ router.get('/summary', requireAuth, async (req, res) => {
          COUNT(*) FILTER (WHERE status = 'approved')          AS approved,
          COUNT(*) FILTER (WHERE status = 'flagged')           AS flagged
        FROM records
-       WHERE received_at >= CURRENT_DATE
-         AND received_at <  CURRENT_DATE + INTERVAL '1 day'
+       WHERE received_at::date = CURRENT_DATE
          AND status != 'deleted'`
     ),
-    // Thống kê tuần này — cả tổng lẫn số đã duyệt
+    // Thống kê tuần này — dùng session timezone
     db.query(
       `SELECT
          COUNT(*)                                              AS total,
          COUNT(*) FILTER (WHERE status = 'approved')          AS approved
        FROM records
-       WHERE received_at >= date_trunc('week', NOW())
+       WHERE received_at::date >= date_trunc('week', CURRENT_DATE)::date
          AND status != 'deleted'`
     ),
     // Tổng records status='new' đang chờ rà soát (toàn bộ, không giới hạn hôm nay)

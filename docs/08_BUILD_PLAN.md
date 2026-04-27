@@ -1313,36 +1313,161 @@ function updateRecord(id, patch) {
 ---
 
 ## 📅 PHASE 8 — REPORTS
-> **Thời gian:** 3 ngày | **Mục tiêu:** Xuất báo cáo Excel/PDF
+> **Thời gian:** 7+ ngày | **Mục tiêu:** Trang báo cáo phân tích đa chiều cho sếp/admin
+> **Kiến trúc:** Tab-based layout — mỗi tab là một góc nhìn độc lập, dùng chung filter bar
+> **Trạng thái (2026-04-27):** Tab "Tổng quan" ✅ và "Tài chính" ✅ đã build. 3 tabs còn lại đang phát triển.
 
-### Step 8.1 — Report Config Form (Frontend)
+### Triết lý thiết kế
+
+Trang Reports **khác biệt hoàn toàn** với Records (xử lý nghiệp vụ hàng ngày) và DocTypes (drill-down theo loại tài liệu). Reports phục vụ câu hỏi chiến lược:
+- So sánh kỳ này với kỳ trước như thế nào?
+- Nhân viên nào hiệu quả nhất?
+- Tốc độ xử lý đang tăng hay giảm?
+- Tổng giá trị chứng từ đã duyệt là bao nhiêu?
+
+### Tab Layout
 
 ```
-src/pages/Reports/index.jsx
-  ├── ReportConfigForm
-  │   ├── Loại báo cáo: [Ngày/Tuần/Tháng/Quý/Tùy chọn]
-  │   ├── Date range picker
-  │   ├── Filter nhân viên (optional)
-  │   ├── Filter danh mục (optional)
-  │   ├── Filter trạng thái (optional)
-  │   └── Xuất dạng: [Excel] [PDF]
-  └── ReportHistoryList (danh sách báo cáo đã tạo)
+[Tổng quan ✅] [Tài chính ✅] [Nhân viên 🔜] [Chất lượng 🔜] [Xuất báo cáo 🔜]
 ```
 
-### Step 8.2 — Report Generation (Backend)
+---
 
-**File:** `src/services/report.service.js`
+### Step 8.1 — Tab 1: Tổng quan (So sánh kỳ) ✅ ĐÃ XONG
+
+**Frontend:** `src/pages/Reports/index.jsx` — component `OverviewTab`
+
+**Backend dùng:** `GET /api/reports/summary` (đã có sẵn)
+
+```
+Bộ lọc:
+  Period presets: [7 ngày] [Tháng này] [Quý này] [Tùy chọn]
+  Toggle: "So sánh kỳ trước" → gọi API 2 lần (current + prev period)
+
+4 KPI Cards với delta vs kỳ trước:
+  Tổng records  |  Đã duyệt  |  Chờ xử lý (▼ tốt)  |  Flagged (▼ tốt)
+  [số]  ▲12%   |  [số] ▲8%  |  [số] ▼5%           |  [số] ▼2%
+
+Biểu đồ timeline SVG:
+  - Đường xanh (kỳ này) + vùng tô mờ
+  - Đường xám nét đứt (kỳ trước, optional)
+  - Dots trên đường khi ≤ 31 ngày
+
+Breakdown bars (2 cột):
+  Theo nền tảng  |  Theo trạng thái
+  
+Breakdown bars (1 hàng):
+  Theo loại tài liệu (hiển thị khi có data)
+```
+
+**Tính toán kỳ trước:**
+```js
+// Duration = to - from (days)
+// prevTo   = from - 1 day
+// prevFrom = prevTo - (duration - 1) days
+function buildPrevPeriod(date_from, date_to) {
+  const days   = Math.round((new Date(date_to) - new Date(date_from)) / 86400_000) + 1
+  const prevTo = new Date(new Date(date_from).getTime() - 86400_000)
+  const prevFrom = new Date(prevTo.getTime() - (days - 1) * 86400_000)
+  return { date_from: fmt(prevFrom), date_to: fmt(prevTo) }
+}
+```
+
+---
+
+### Step 8.2 — Tab 2: Tài chính (Financial Summary) ✅ ĐÃ XONG
+
+**Frontend:** `src/pages/Reports/index.jsx` — component `FinancialTab`
+
+**Backend dùng:** `GET /api/reports/financial` (admin/manager only — trả 403 nếu staff)
+
+```
+Bộ lọc:
+  [Từ ngày] [Đến ngày] [Bao gồm chưa duyệt (toggle)] [Áp dụng]
+
+Summary strip:
+  Tổng records  |  Loại tài liệu  |  Trạng thái (Đã duyệt / Tất cả)
+
+Bảng tổng hợp (nhóm theo document_type):
+  ┌─ Tên loại tài liệu ────────────────── N records ──┐
+  │ Trường    | Số records | Tổng | TB | Min | Max | Đơn vị │
+  └────────────────────────────────────────────────────┘
+
+Empty state khi không có trường nào is_reportable=true:
+  → Hướng dẫn vào Settings → Loại tài liệu để cấu hình
+
+403 state khi staff truy cập:
+  → Hiện thông báo "Chỉ Admin và Manager mới có thể xem"
+```
+
+---
+
+### Step 8.3 — Tab 3: Nhân viên (Staff Performance) 🔜
+
+**Backend cần thêm:** `GET /api/reports/staff`
+
+```sql
+SELECT
+  u.name, u.id,
+  COUNT(r.id)::int AS total_sent,
+  COUNT(CASE WHEN r.status = 'approved' THEN 1 END)::int AS approved,
+  COUNT(CASE WHEN r.status = 'flagged'  THEN 1 END)::int AS flagged,
+  ROUND(COUNT(CASE WHEN r.status = 'approved' THEN 1 END) * 100.0 / NULLIF(COUNT(r.id), 0), 1) AS approval_rate,
+  MAX(r.received_at) AS last_activity
+FROM records r
+JOIN users u ON r.sender_id = u.id
+WHERE r.status != 'deleted'
+  AND [date_from, date_to filters]
+GROUP BY u.id, u.name
+ORDER BY total_sent DESC
+```
+
+```
+Frontend hiển thị:
+  Bảng xếp hạng nhân viên:
+  #  |  Tên        |  Gửi  |  Duyệt  |  Flag  |  Tỷ lệ  |  Hoạt động gần nhất
+  1  |  Nguyễn A   |  45   |  40     |  1     |  89%    |  2h trước
+  2  |  Trần B     |  32   |  28     |  3     |  88%    |  5h trước
+
+  Mini heatmap: hoạt động theo giờ trong ngày (7 ngày gần nhất)
+```
+
+---
+
+### Step 8.4 — Tab 4: Chất lượng & Flags 🔜
+
+**Backend cần thêm:** phân tích `flag_reason` và OCR confidence
+
+```
+Frontend hiển thị:
+  Tỷ lệ flag toàn hệ thống + so kỳ trước
+  
+  Breakdown lý do flag (pie + list):
+    Ảnh mờ/không đọc được  42%
+    Thiếu thông tin         28%
+    Sai danh mục            18%
+    Khác                    12%
+
+  Top nhân viên bị flag nhiều nhất
+  
+  OCR confidence distribution:
+    ≥ 85% (xanh)  |  60-84% (vàng)  |  < 60% (đỏ)
+```
+
+---
+
+### Step 8.5 — Tab 5: Xuất báo cáo 🔜
+
+**Backend cần implement:** `POST /api/reports/generate` (hiện stub 501)
 
 **Excel với ExcelJS:**
 ```js
 async generateExcel(reportConfig) {
   const workbook = new ExcelJS.Workbook()
-  const sheet = workbook.addWorksheet('Báo cáo')
-
-  // Header style
-  // Data rows (từ DB query)
-  // Summary sheet (tổng hợp)
-  // Lưu file → upload lên Storage → trả về URL
+  // Sheet 1: Tổng quan kỳ (KPI + platform + status)
+  // Sheet 2: Chi tiết nhân viên
+  // Sheet 3: Tổng hợp tài chính (nếu có quyền)
+  // Header có logo + tên công ty + ngày xuất
 }
 ```
 
@@ -1350,25 +1475,57 @@ async generateExcel(reportConfig) {
 ```js
 async generatePDF(reportConfig) {
   const doc = new PDFDocument()
-  // Logo + tiêu đề
-  // Bảng tổng hợp
-  // Bảng chi tiết theo nhân viên
-  // Lưu buffer → upload → trả về URL
+  // Trang 1: Cover + KPI overview
+  // Trang 2: Biểu đồ xu hướng
+  // Trang 3: Bảng chi tiết nhân viên
+  // Footer: ngày xuất + người xuất + page number
 }
 ```
 
-### Step 8.3 — Async Job Queue (tùy chọn nếu data lớn)
-
-Nếu báo cáo tạo > 2 giây, dùng async:
+**Async job (nếu data lớn):**
 ```
 POST /api/reports/generate
-  → Tạo report_job record (status='pending')
+  → INSERT report_jobs (status='pending', filter_config=JSON)
   → Return { job_id }
-  → Background: xử lý → cập nhật status='done', file_url
-  → WebSocket emit 'report_ready' → Frontend tự download
+  → Background setImmediate: generate → upload → UPDATE status='done', file_url
+  → Socket.io emit 'report_ready' → Frontend show download button
 
-GET /api/reports/:id/download
-  → Redirect về file_url
+GET /api/reports/:id/download → redirect file_url
+```
+
+---
+
+### Files đã tạo (Phase 8)
+
+```
+frontend/src/pages/Reports/index.jsx    ✅  (OverviewTab + FinancialTab + ComingSoon placeholders)
+frontend/src/pages/Reports/Reports.css  ✅  (full design system cho trang Reports)
+frontend/src/services/reports.service.js ✅  (getReportsSummary + getReportsFinancial)
+```
+
+### Checklist Phase 8 hiện tại
+
+```
+Tab Tổng quan:
+  [x] Period presets (7 ngày / Tháng này / Quý này / Tùy chọn)
+  [x] So sánh kỳ trước toggle
+  [x] 4 KPI cards với delta % và "kỳ trước" hint
+  [x] SVG line chart (current + dashed previous)
+  [x] Breakdown bars: theo platform + theo status
+  [x] Breakdown bars: theo loại tài liệu
+  [x] Skeleton loading states
+
+Tab Tài chính:
+  [x] Date range filter + include_unapproved toggle
+  [x] Summary strip (tổng records / số loại TL / trạng thái)
+  [x] Bảng nhóm theo document_type với Tổng/TB/Min/Max
+  [x] 403 error state (staff không có quyền)
+  [x] Empty state khi chưa cấu hình trường reportable
+
+Tabs còn lại:
+  [ ] Staff Performance (cần backend /api/reports/staff)
+  [ ] Chất lượng & Flags (cần phân tích flag_reason)
+  [ ] Xuất báo cáo Excel/PDF (cần implement generate endpoint)
 ```
 
 ---

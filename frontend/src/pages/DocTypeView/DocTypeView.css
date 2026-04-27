@@ -683,17 +683,14 @@
   transition: transform .2s;
 }
 .msd__trigger--open .msd__chevron { transform: rotate(180deg); }
+/* Panel — position: fixed set via inline style to escape overflow:hidden parents */
 .msd__panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  max-width: 240px;
+  max-width: 260px;
   background: #fff;
   border: 1.5px solid var(--line2);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15,23,42,.12);
-  z-index: 500;
+  z-index: 9999;
   padding: 4px 0;
   animation: msdDrop .12s ease;
 }

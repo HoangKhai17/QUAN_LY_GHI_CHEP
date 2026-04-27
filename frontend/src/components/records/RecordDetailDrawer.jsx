@@ -143,6 +143,8 @@ export default function RecordDetailDrawer({
     try {
       await updateRecord(record.id, { category_id: val || null })
       onStatusChange?.(record.id, { category_id: val })
+      message.success('Đã cập nhật danh mục')
+      onRefreshRecord?.()
     } catch {
       message.error('Cập nhật danh mục thất bại')
     }

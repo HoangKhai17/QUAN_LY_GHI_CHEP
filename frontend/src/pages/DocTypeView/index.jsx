@@ -144,8 +144,10 @@ function getInitialStaticFilters() {
 // ── Multi-select dropdown ──────────────────────────────────────────────────────
 
 function MultiSelectDropdown({ placeholder, options, value, onChange }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
+  const [open,     setOpen]     = useState(false)
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0, width: 0 })
+  const ref        = useRef(null)
+  const triggerRef = useRef(null)
 
   useEffect(() => {
     function onOutside(e) {
@@ -168,12 +170,21 @@ function MultiSelectDropdown({ placeholder, options, value, onChange }) {
     return `${selected.length} đã chọn`
   }
 
+  function handleToggle() {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setPanelPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+    setOpen(o => !o)
+  }
+
   return (
     <div className="msd" ref={ref}>
       <button
         type="button"
+        ref={triggerRef}
         className={`msd__trigger${!isAll ? ' msd__trigger--active' : ''}${open ? ' msd__trigger--open' : ''}`}
-        onClick={() => setOpen(o => !o)}
+        onClick={handleToggle}
       >
         <span className="msd__label">{triggerLabel()}</span>
         {!isAll && <span className="msd__count">{selected.length}</span>}
@@ -183,7 +194,10 @@ function MultiSelectDropdown({ placeholder, options, value, onChange }) {
       </button>
 
       {open && (
-        <div className="msd__panel">
+        <div
+          className="msd__panel"
+          style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, minWidth: panelPos.width }}
+        >
           <div
             className={`msd__option${isAll ? ' msd__option--checked' : ''}`}
             onClick={() => onChange([])}
@@ -349,8 +363,15 @@ export default function DocTypeViewPage() {
   const fetchStats = useCallback(() => {
     const type = docTypes.find(t => t.code === selectedCode)
     if (!type?.id) return
-    getRecordStats({ document_type_id: type.id }).then(setStats).catch(() => {})
-  }, [selectedCode, docTypes])
+    const sf = staticFilters || {}
+    const params = { document_type_id: type.id }
+    if (sf.search)              params.search      = sf.search
+    if (sf.date_from)           params.date_from   = sf.date_from
+    if (sf.date_to)             params.date_to     = sf.date_to
+    if (sf.platform?.length)    params.platform    = sf.platform.join(',')
+    if (sf.category_id?.length) params.category_id = sf.category_id.join(',')
+    getRecordStats(params).then(setStats).catch(() => {})
+  }, [selectedCode, docTypes, staticFilters])
 
   useEffect(() => { fetchStats() }, [fetchStats, filters, staticFilters])
 

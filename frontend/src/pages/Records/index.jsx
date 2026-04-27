@@ -63,8 +63,10 @@ const EMPTY_FORM = {
 
 // ── Multi-select dropdown ────────────────────────────────────────────────────
 function MultiSelectDropdown({ placeholder, options, value, onChange }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
+  const [open,     setOpen]     = useState(false)
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0, width: 0 })
+  const ref        = useRef(null)
+  const triggerRef = useRef(null)
 
   useEffect(() => {
     function onOutside(e) {
@@ -87,12 +89,21 @@ function MultiSelectDropdown({ placeholder, options, value, onChange }) {
     return `${selected.length} đã chọn`
   }
 
+  function handleToggle() {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      setPanelPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+    }
+    setOpen(o => !o)
+  }
+
   return (
     <div className="msd" ref={ref}>
       <button
         type="button"
+        ref={triggerRef}
         className={`msd__trigger${!isAll ? ' msd__trigger--active' : ''}${open ? ' msd__trigger--open' : ''}`}
-        onClick={() => setOpen(o => !o)}
+        onClick={handleToggle}
       >
         <span className="msd__label">{triggerLabel()}</span>
         {!isAll && (
@@ -104,7 +115,10 @@ function MultiSelectDropdown({ placeholder, options, value, onChange }) {
       </button>
 
       {open && (
-        <div className="msd__panel">
+        <div
+          className="msd__panel"
+          style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, minWidth: panelPos.width }}
+        >
           {/* Tất cả */}
           <div
             className={`msd__option${isAll ? ' msd__option--checked' : ''}`}

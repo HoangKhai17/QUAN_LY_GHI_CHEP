@@ -5,6 +5,7 @@ import RecordDetailDrawer from '../../components/records/RecordDetailDrawer'
 import useRecordsQuery from '../../hooks/useRecordsQuery'
 import useRecordDetail from '../../hooks/useRecordDetail'
 import { getCategories, getDocumentTypes, createRecord, getSenders, getRecordStats, getUsers, getRecordYears } from '../../services/record.service'
+import { exportReport } from '../../services/reports.service'
 import notify from '../../utils/notify'
 import './Records.css'
 
@@ -397,6 +398,7 @@ export default function RecordsPage() {
 
   const [isFullscreen,     setIsFullscreen]     = useState(false)
   const [filterCollapsed,  setFilterCollapsed]  = useState(false)
+  const [exporting,        setExporting]        = useState(false)
 
   useEffect(() => {
     const onFsChange = () => {
@@ -416,6 +418,46 @@ export default function RecordsPage() {
       document.documentElement.requestFullscreen()
     } else {
       document.exitFullscreen()
+    }
+  }
+
+  async function exportCurrentRecords() {
+    if (total <= 0) {
+      notify.warning('Không có dữ liệu để xuất', 'Bộ lọc hiện tại chưa có record phù hợp')
+      return
+    }
+    setExporting(true)
+    try {
+      const params = {
+        type: 'records',
+        format: 'xlsx',
+        include_field_values: 'true',
+        ...filters,
+      }
+      const response = await exportReport(params)
+      const cd = response.headers['content-disposition'] ?? ''
+      const match = cd.match(/filename="?([^";\s]+)"?/)
+      const filename = match?.[1] ?? `BBOTECH_records_${new Date().toISOString().slice(0, 10)}.xlsx`
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      notify.success('Đã xuất dữ liệu', `${total.toLocaleString('vi-VN')} record theo bộ lọc hiện tại`)
+    } catch (err) {
+      let msg = err?.message || 'Không thể xuất dữ liệu'
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text()
+          msg = JSON.parse(text).error || msg
+        } catch {}
+      }
+      notify.error('Xuất dữ liệu thất bại', msg)
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -449,6 +491,13 @@ export default function RecordsPage() {
           </button>
           <button className="bbo-btn bbo-btn-sm" onClick={() => navigate('/app/dashboard')}>
             ← Dashboard
+          </button>
+          <button
+            className="bbo-btn bbo-btn-sm bbo-btn-export"
+            onClick={exportCurrentRecords}
+            disabled={exporting || loading || total <= 0}
+          >
+            {exporting ? 'Đang xuất…' : 'Xuất dữ liệu'}
           </button>
           <button
             className="bbo-btn bbo-btn-sm bbo-btn-primary"

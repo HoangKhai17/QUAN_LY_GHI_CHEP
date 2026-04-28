@@ -7,6 +7,7 @@ import PlatformBadge from '../../components/records/PlatformBadge'
 import FlagDialog from '../../components/records/FlagDialog'
 import useRecordDetail from '../../hooks/useRecordDetail'
 import { getDocumentTypes, updateRecordStatus, deleteRecord, getRecordStats, getCategories, getRecordYears } from '../../services/record.service'
+import { exportReport } from '../../services/reports.service'
 import { getSocket } from '../../services/socket'
 import notify from '../../utils/notify'
 import api from '../../services/api'
@@ -264,6 +265,7 @@ export default function DocTypeViewPage() {
   // Checkbox / selection
   const [selected,     setSelected]     = useState(new Set())
   const [bulkLoading,  setBulkLoading]  = useState(false)
+  const [exporting,    setExporting]    = useState(false)
   const [savingId,     setSavingId]     = useState(null)
 
   // Flag dialog
@@ -675,6 +677,67 @@ export default function DocTypeViewPage() {
     else document.exitFullscreen()
   }
 
+  async function exportCurrentDocType() {
+    const type = docTypes.find(t => t.code === selectedCode)
+    if (!type?.id) return
+    if (total <= 0) {
+      notify.warning('Không có dữ liệu để xuất', 'Bộ lọc hiện tại chưa có record phù hợp')
+      return
+    }
+
+    const params = {
+      type: 'records',
+      format: 'xlsx',
+      include_field_values: 'true',
+      document_type_id: type.id,
+      field_keys: [...visibleCols].join(','),
+      sort_order: staticFilters.sort_order || 'desc',
+    }
+    if (staticFilters.search) params.search = staticFilters.search
+    if (staticFilters.date_from) params.date_from = staticFilters.date_from
+    if (staticFilters.date_to) params.date_to = staticFilters.date_to
+    if (staticFilters.platform?.length) params.platform = staticFilters.platform.join(',')
+    if (staticFilters.status?.length) params.status = staticFilters.status.join(',')
+    if (staticFilters.category_id?.length) params.category_id = staticFilters.category_id.join(',')
+
+    const fvParam = {}
+    for (const [fieldKey, { op, value }] of Object.entries(filters)) {
+      if (value !== '' && value != null) {
+        fvParam[fieldKey] = fvParam[fieldKey] || {}
+        fvParam[fieldKey][op] = value
+      }
+    }
+    if (Object.keys(fvParam).length) params.fv = fvParam
+
+    setExporting(true)
+    try {
+      const response = await exportReport(params, { paramsSerializer: serializeParams })
+      const cd = response.headers['content-disposition'] ?? ''
+      const match = cd.match(/filename="?([^";\s]+)"?/)
+      const filename = match?.[1] ?? `BBOTECH_${type.code}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      notify.success('Đã xuất dữ liệu', `${total.toLocaleString('vi-VN')} record ${type.name} theo bộ lọc hiện tại`)
+    } catch (err) {
+      let msg = err?.message || 'Không thể xuất dữ liệu'
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text()
+          msg = JSON.parse(text).error || msg
+        } catch {}
+      }
+      notify.error('Xuất dữ liệu thất bại', msg)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   function openDetail(r) { openById(r.id); setDetailOpen(true) }
 
   // ── Derived values ───────────────────────────────────────────────────────────
@@ -742,6 +805,13 @@ export default function DocTypeViewPage() {
                 <path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
               </svg>
             )}
+          </button>
+          <button
+            className="bbo-btn bbo-btn-sm bbo-btn-export"
+            onClick={exportCurrentDocType}
+            disabled={exporting || loading || total <= 0 || !selectedType?.id}
+          >
+            {exporting ? 'Đang xuất…' : 'Xuất dữ liệu'}
           </button>
           <div className="dtv-type-selector">
           <label className="dtv-type-selector__label">Loại tài liệu</label>

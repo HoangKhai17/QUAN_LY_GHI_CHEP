@@ -22,6 +22,7 @@ const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
 const { makeCacheMiddleware, clearAll } = require('../../middlewares/cache.middleware')
 const { logAudit } = require('../../services/audit.service')
+const rfvService = require('../../services/record-field-value.service')
 
 router.use(requireAuth)
 router.use(makeCacheMiddleware({ ttl: 60_000 }))
@@ -714,6 +715,120 @@ router.post('/audit/archive', requireRole('admin'), async (req, res) => {
 // ── GET /api/reports/export ───────────────────────────────────────────────────
 const ExcelJS = require('exceljs')
 
+const VALID_RECORD_EXPORT_STATUSES = ['new', 'reviewed', 'approved', 'flagged', 'deleted']
+
+function _splitList(value) {
+  return value ? String(value).split(',').map(v => v.trim()).filter(Boolean) : []
+}
+
+function _buildExportFvCondition(fieldKey, op, rawVal, params, documentTypeIds = []) {
+  if (rawVal === undefined || rawVal === null || rawVal === '') return null
+  if (!/^[a-zA-Z0-9_]+$/.test(fieldKey)) return null
+
+  let col, castVal, sqlOp
+  if (op === 'gte' || op === 'lte') {
+    const n = parseFloat(rawVal)
+    if (Number.isNaN(n)) return null
+    col = 'rfv_fv.value_number'
+    castVal = n
+    sqlOp = op === 'gte' ? '>=' : '<='
+  } else if (op === 'from' || op === 'to') {
+    col = 'rfv_fv.value_date'
+    castVal = rawVal
+    sqlOp = op === 'from' ? '>=' : '<='
+  } else if (op === 'like') {
+    col = 'rfv_fv.value_text'
+    castVal = `%${rawVal}%`
+    sqlOp = 'ILIKE'
+  } else {
+    const n = parseFloat(rawVal)
+    if (!Number.isNaN(n) && String(rawVal).trim() !== '') {
+      col = 'rfv_fv.value_number'
+      castVal = n
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(rawVal)) {
+      col = 'rfv_fv.value_date'
+      castVal = rawVal
+    } else {
+      col = 'rfv_fv.value_text'
+      castVal = rawVal
+    }
+    sqlOp = '='
+  }
+
+  params.push(fieldKey)
+  const keyN = params.length
+  const scopedTypeIds = Array.isArray(documentTypeIds)
+    ? documentTypeIds.map(id => String(id).trim()).filter(Boolean)
+    : []
+  let typeScope = ''
+  if (scopedTypeIds.length > 0) {
+    params.push(scopedTypeIds)
+    typeScope = ` AND document_type_id = ANY($${params.length}::uuid[])`
+  }
+  params.push(castVal)
+  const valN = params.length
+
+  return `EXISTS (
+    SELECT 1 FROM record_field_values rfv_fv
+    WHERE rfv_fv.record_id = r.id
+      AND rfv_fv.field_id IN (SELECT id FROM document_type_fields WHERE field_key = $${keyN}${typeScope})
+      AND ${col} ${sqlOp} $${valN}
+  )`
+}
+
+function _buildRecordExportWhere(query) {
+  const {
+    status, platform, sender_id, category_id,
+    document_type_id, extraction_status,
+    search, sender_name,
+    date_from, date_to,
+  } = query
+
+  const conditions = []
+  const params = []
+
+  const statuses = _splitList(status).filter(s => VALID_RECORD_EXPORT_STATUSES.includes(s))
+  if (statuses.length > 0) conditions.push(`r.status::text = ANY($${params.push(statuses)}::text[])`)
+  else conditions.push(`r.status != 'deleted'`)
+
+  const platforms = _splitList(platform)
+  if (platforms.length > 0) conditions.push(`r.platform = ANY($${params.push(platforms)}::text[])`)
+
+  const categoryIds = _splitList(category_id)
+  if (categoryIds.length > 0) conditions.push(`r.category_id = ANY($${params.push(categoryIds)}::uuid[])`)
+
+  const senderNames = _splitList(sender_name)
+  if (senderNames.length > 0) conditions.push(`r.sender_name = ANY($${params.push(senderNames)}::text[])`)
+
+  if (search?.trim()) {
+    conditions.push(
+      `to_tsvector('simple', coalesce(r.note,'') || ' ' || coalesce(r.ocr_text,'') || ' ' || coalesce(r.sender_name,'')) @@ plainto_tsquery('simple', $${params.push(search.trim())})`
+    )
+  }
+
+  if (sender_id) conditions.push(`r.sender_id = $${params.push(sender_id)}::uuid`)
+
+  const documentTypeIds = _splitList(document_type_id)
+  if (documentTypeIds.length > 0) conditions.push(`r.document_type_id = ANY($${params.push(documentTypeIds)}::uuid[])`)
+
+  if (extraction_status) conditions.push(`r.extraction_status = $${params.push(extraction_status)}`)
+  if (date_from) conditions.push(`r.received_at::date >= $${params.push(date_from)}::date`)
+  if (date_to) conditions.push(`r.received_at::date <= $${params.push(date_to)}::date`)
+
+  const fvFilters = query.fv
+  if (fvFilters && typeof fvFilters === 'object') {
+    for (const [fieldKey, ops] of Object.entries(fvFilters)) {
+      if (!ops || typeof ops !== 'object') continue
+      for (const [op, rawVal] of Object.entries(ops)) {
+        const cond = _buildExportFvCondition(fieldKey, op, rawVal, params, documentTypeIds)
+        if (cond) conditions.push(cond)
+      }
+    }
+  }
+
+  return { where: `WHERE ${conditions.join(' AND ')}`, params, documentTypeIds }
+}
+
 const EXPORT_TYPE_LABELS = {
   records:   'Danh sách tài liệu',
   summary:   'Tổng hợp',
@@ -906,15 +1021,14 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
     }
 
     // ── All other types: based on records table ───────────────────────────────
-    const { conditions, params } = buildFilters(req.query)
-    conditions.push(`r.status != 'deleted'`)
-    if (statusFilter) conditions.push(`r.status = $${params.push(statusFilter)}`)
-    const where = `WHERE ${conditions.join(' AND ')}`
-
     // ── records ───────────────────────────────────────────────────────────────
     if (type === 'records') {
+      const { where, params, documentTypeIds } = _buildRecordExportWhere(req.query)
+      const orderDir = req.query.sort_order === 'asc' ? 'ASC' : 'DESC'
       const { rows } = await db.query(`
         SELECT
+          r.id,
+          COALESCE(('REC-' || RIGHT(REPLACE(r.id::text, '-', ''), 8)), r.id::text) AS record_code,
           r.sender_name,
           r.platform,
           COALESCE(dt.name, 'Chưa phân loại')  AS document_type,
@@ -928,10 +1042,11 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
         LEFT JOIN document_types dt ON r.document_type_id = dt.id
         LEFT JOIN categories cat    ON r.category_id      = cat.id
         ${where}
-        ORDER BY r.received_at DESC
+        ORDER BY r.received_at ${orderDir}
         LIMIT 50000`, params)
 
       const cols = [
+        { key: 'record_code',   header: 'Mã record',       width: 16 },
         { key: 'sender_name',   header: 'Người gửi',    width: 22 },
         { key: 'platform',      header: 'Nền tảng',      width: 14 },
         { key: 'document_type', header: 'Loại tài liệu', width: 26 },
@@ -943,10 +1058,49 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
         { key: 'note',          header: 'Ghi chú',       width: 34 },
       ]
 
+      let exportRows = rows
+      if (req.query.include_field_values === 'true' && rows.length > 0 && documentTypeIds.length > 0) {
+        const fieldKeys = _splitList(req.query.field_keys)
+        const fieldParams = []
+        const fieldConds = []
+
+        if (documentTypeIds.length > 0) {
+          fieldConds.push(`document_type_id = ANY($${fieldParams.push(documentTypeIds)}::uuid[])`)
+        }
+        if (fieldKeys.length > 0) {
+          fieldConds.push(`field_key = ANY($${fieldParams.push(fieldKeys)}::text[])`)
+        }
+        const fieldWhere = fieldConds.length ? `WHERE ${fieldConds.join(' AND ')}` : ''
+        const { rows: fieldDefs } = await db.query(
+          `SELECT field_key, label, data_type, unit
+           FROM document_type_fields
+           ${fieldWhere}
+           ORDER BY display_order, field_key
+           LIMIT 80`,
+          fieldParams
+        )
+
+        if (fieldDefs.length > 0) {
+          const fvMap = await rfvService.getForRecords(rows.map(r => r.id))
+          exportRows = rows.map(row => {
+            const next = { ...row }
+            for (const f of fieldDefs) {
+              next[`fv_${f.field_key}`] = fvMap[row.id]?.[f.field_key]?.value ?? ''
+            }
+            return next
+          })
+          cols.push(...fieldDefs.map(f => ({
+            key: `fv_${f.field_key}`,
+            header: f.unit ? `${f.label} (${f.unit})` : f.label,
+            width: 20,
+          })))
+        }
+      }
+
       if (format === 'csv') {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8')
         res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`)
-        return res.send(_toCsv(cols, rows))
+        return res.send(_toCsv(cols, exportRows))
       }
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
@@ -957,13 +1111,18 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
         dateFrom: exportDateFrom,
         dateTo: exportDateTo,
         filters: { platform, status: statusFilter },
-        rowCount: rows.length,
+        rowCount: exportRows.length,
       })
-      _addSheet(wb, 'Danh sách tài liệu', cols, rows)
+      _addSheet(wb, 'Danh sách tài liệu', cols, exportRows)
       return _sendWorkbook(res, wb, filename)
     }
 
     // ── summary (multi-sheet XLSX only) ───────────────────────────────────────
+    const { conditions, params } = buildFilters(req.query)
+    conditions.push(`r.status != 'deleted'`)
+    if (statusFilter) conditions.push(`r.status = $${params.push(statusFilter)}`)
+    const where = `WHERE ${conditions.join(' AND ')}`
+
     if (type === 'summary') {
       const [byStatus, byPlatform, byDocType, timeline] = await Promise.all([
         db.query(`

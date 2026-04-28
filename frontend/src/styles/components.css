@@ -80,6 +80,24 @@
   box-shadow: 0 6px 16px rgba(31,143,58,.22);
 }
 .bbo-btn-primary:hover { background: linear-gradient(180deg, #1f8845 0%, #157a2f 100%); color: #fff; }
+.bbo-btn-export {
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  border-color: #4f46e5;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, .22);
+}
+.bbo-btn-export:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%);
+  border-color: #4338ca;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, .3);
+}
+.bbo-btn-export:disabled {
+  background: linear-gradient(135deg, #93c5fd 0%, #c4b5fd 100%);
+  border-color: #a5b4fc;
+  color: rgba(255, 255, 255, .86);
+  box-shadow: none;
+}
 .bbo-btn-danger  { background: #fff; color: var(--danger); border-color: #f2c8c4; }
 .bbo-btn-danger:hover  { background: #fff1ef; border-color: #e5aaa3; }
 .bbo-btn-ghost   { background: transparent; box-shadow: none; border-color: var(--line2); }

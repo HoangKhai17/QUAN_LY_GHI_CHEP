@@ -55,7 +55,7 @@ export async function getAuditLogs(params = {}) {
   return data
 }
 
-export async function exportReport(params = {}) {
-  const response = await api.get('/api/reports/export', { params, responseType: 'blob' })
+export async function exportReport(params = {}, config = {}) {
+  const response = await api.get('/api/reports/export', { ...config, params, responseType: 'blob' })
   return response
 }

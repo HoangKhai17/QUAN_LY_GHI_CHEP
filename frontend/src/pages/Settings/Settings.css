@@ -103,6 +103,7 @@
 .adm-table-users   { grid-template-columns: minmax(200px, 1fr) 130px 115px 155px 225px; }
 .adm-table-doctypes { grid-template-columns: 1fr 1fr 120px 150px; }
 .adm-table-cats    { grid-template-columns: 1fr 1fr 120px 180px; }
+.adm-table-backup  { grid-template-columns: 1fr 110px 175px 190px; }
 
 /* ── Cell text helpers ─────────────────────────────────────────────────────── */
 .adm-cell-primary { font-size: 14px; font-weight: 600; color: var(--ink); }
@@ -807,4 +808,5 @@
   .adm-table-users    { grid-template-columns: minmax(160px, 1fr) 110px 100px 135px 210px; }
   .adm-table-doctypes { grid-template-columns: 1fr 130px 100px 130px; }
   .adm-table-cats     { grid-template-columns: 1fr 130px 100px 150px; }
+  .adm-table-backup   { grid-template-columns: 1fr 90px 150px 170px; }
 }

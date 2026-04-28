@@ -40,3 +40,6 @@ coverage/
 # Temp
 *.tmp
 *.temp
+
+# Database backups — không commit file dump lớn
+backend/backups/*.sql

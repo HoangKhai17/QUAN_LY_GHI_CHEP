@@ -93,3 +93,33 @@ export async function clearSetting(key) {
   const { data } = await api.delete(`/api/settings/${key}`)
   return data
 }
+
+// ── Database Backup ────────────────────────────────────────────────────────────
+export async function listBackups() {
+  const { data } = await api.get('/api/backup')
+  return data // { data: [{ filename, size_bytes, size_label, created_at }] }
+}
+
+export async function createBackup() {
+  const { data } = await api.post('/api/backup')
+  return data // { data: { filename, size_bytes, size_label, created_at } }
+}
+
+export async function downloadBackup(filename) {
+  const response = await api.get(`/api/backup/${encodeURIComponent(filename)}/download`, {
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(new Blob([response.data], { type: 'application/octet-stream' }))
+  const a   = document.createElement('a')
+  a.href     = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export async function deleteBackup(filename) {
+  const { data } = await api.delete(`/api/backup/${encodeURIComponent(filename)}`)
+  return data
+}

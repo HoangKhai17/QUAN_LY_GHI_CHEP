@@ -123,6 +123,7 @@ app.use('/api/search',         require('./modules/search/search.router'))
 app.use('/api/reports',        require('./modules/reports/reports.router'))
 app.use('/api/notifications',  require('./modules/notifications/notifications.router'))
 app.use('/api/settings',       require('./modules/settings/settings.router'))
+app.use('/api/backup',         require('./modules/backup/backup.router'))
 
 // ── Multi-platform webhook (/webhook/zalo, /webhook/telegram, ...) ──
 app.use('/webhook',       require('./modules/webhook/webhook.router'))

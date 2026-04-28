@@ -1569,6 +1569,165 @@ function ApiKeysTab() {
   )
 }
 
+// ── Tab: Database Backup ───────────────────────────────────────────────────────
+
+function BackupTab() {
+  const [backups,       setBackups]       = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [creating,      setCreating]      = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null) // filename
+  const [downloading,   setDownloading]   = useState(null) // filename
+
+  function fmtDate(iso) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+  }
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await adminSvc.listBackups()
+      setBackups(res.data ?? [])
+    } catch {
+      notify.error('Tải danh sách backup thất bại', 'Lỗi kết nối')
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleCreate() {
+    setCreating(true)
+    try {
+      const res = await adminSvc.createBackup()
+      notify.success('Tạo backup thành công', `${res.data?.filename} (${res.data?.size_label})`)
+      load()
+    } catch (err) {
+      notify.error('Tạo backup thất bại', err.response?.data?.error || err.message || 'Lỗi khi chạy pg_dump')
+    } finally { setCreating(false) }
+  }
+
+  async function handleDownload(filename) {
+    setDownloading(filename)
+    try {
+      await adminSvc.downloadBackup(filename)
+    } catch {
+      notify.error('Download thất bại', 'Không thể tải file backup')
+    } finally { setDownloading(null) }
+  }
+
+  async function doDelete() {
+    const filename = confirmDelete
+    setConfirmDelete(null)
+    try {
+      await adminSvc.deleteBackup(filename)
+      setBackups(prev => prev.filter(b => b.filename !== filename))
+      notify.success('Đã xóa', `Backup "${filename}" đã bị xóa`)
+    } catch (err) {
+      notify.error('Xóa thất bại', err.response?.data?.error || 'Lỗi xóa backup')
+    }
+  }
+
+  return (
+    <div className="adm-section">
+      <div className="adm-section-header">
+        <div>
+          <div className="adm-section-title">Backup cơ sở dữ liệu</div>
+          <div className="adm-section-sub">
+            {loading ? '…' : `${backups.length} / 10 bản backup`}
+          </div>
+        </div>
+        <button
+          className="bbo-btn bbo-btn-sm bbo-btn-primary"
+          onClick={handleCreate}
+          disabled={creating}
+        >
+          {creating ? 'Đang tạo backup…' : '+ Tạo Backup'}
+        </button>
+      </div>
+
+      <div className="bbo-card" style={{ padding: '14px 20px', background: '#f8fbff', border: '1px solid #dde8f5', marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink2)', lineHeight: 1.8 }}>
+          <strong>Backup bao gồm:</strong> Toàn bộ cấu trúc bảng và dữ liệu (records, users, categories, settings…) — định dạng SQL plain text.
+          Khôi phục bằng lệnh: <code style={{ background: '#eef2f7', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>psql -U user -d dbname -f backup_file.sql</code>
+          <br />
+          File lưu tại <code style={{ background: '#eef2f7', padding: '1px 6px', borderRadius: 4, fontSize: 12 }}>backend/backups/</code>.
+          Tối đa <strong>10 bản</strong> — bản cũ nhất tự xóa khi tạo mới vượt giới hạn.
+        </div>
+      </div>
+
+      <div className="bbo-card" style={{ overflow: 'hidden' }}>
+        <div className="adm-table-head adm-table-backup">
+          <div>Tên file</div>
+          <div>Kích thước</div>
+          <div>Thời gian tạo</div>
+          <div>Thao tác</div>
+        </div>
+
+        {loading && Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="adm-table-row adm-table-backup">
+            <div className="skeleton" style={{ height: 14, width: '80%' }} />
+            <div className="skeleton" style={{ height: 14, width: 60 }} />
+            <div className="skeleton" style={{ height: 14, width: 130 }} />
+            <div className="skeleton" style={{ height: 30, width: 150, borderRadius: 8 }} />
+          </div>
+        ))}
+
+        {!loading && backups.map(b => (
+          <div key={b.filename} className="adm-table-row adm-table-backup">
+            <div className="adm-cell-mono adm-cell-primary" style={{ fontSize: 12 }}>{b.filename}</div>
+            <div className="adm-cell-sub">{b.size_label}</div>
+            <div className="adm-cell-sub">{fmtDate(b.created_at)}</div>
+            <div className="adm-row-actions">
+              <button
+                className="bbo-btn bbo-btn-sm bbo-btn-primary"
+                onClick={() => handleDownload(b.filename)}
+                disabled={downloading === b.filename}
+              >
+                {downloading === b.filename ? '…' : 'Download'}
+              </button>
+              <button
+                className="bbo-btn bbo-btn-sm bbo-btn-danger-outline"
+                onClick={() => setConfirmDelete(b.filename)}
+              >
+                Xóa
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {!loading && backups.length === 0 && (
+          <div className="adm-empty">Chưa có backup nào — nhấn "+ Tạo Backup" để bắt đầu</div>
+        )}
+      </div>
+
+      {confirmDelete && (
+        <div className="adm-modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmDelete(null)}>
+          <div className="adm-modal" style={{ maxWidth: 420 }}>
+            <div className="adm-modal-header">
+              <div className="adm-modal-title">Xác nhận xóa backup</div>
+              <button className="adm-modal-close" onClick={() => setConfirmDelete(null)}>✕</button>
+            </div>
+            <div className="adm-modal-body">
+              <p style={{ fontSize: 14, color: 'var(--ink2)', lineHeight: 1.7, margin: 0 }}>
+                Xóa file <code style={{ background: '#eef2f7', padding: '1px 6px', borderRadius: 4 }}>{confirmDelete}</code>?
+                <br />
+                Hành động này không thể hoàn tác.
+              </p>
+            </div>
+            <div className="adm-modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button className="bbo-btn bbo-btn-sm" onClick={() => setConfirmDelete(null)}>Hủy</button>
+              <button className="bbo-btn bbo-btn-sm bbo-btn-danger" onClick={doDelete}>Xóa</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1577,6 +1736,7 @@ const TABS = [
   { key: 'doctypes',   label: 'Loại tài liệu' },
   { key: 'categories', label: 'Danh mục' },
   { key: 'apikeys',    label: 'Setup API Key', adminOnly: true },
+  { key: 'backup',     label: 'Backup DB',     adminOnly: true },
 ]
 
 export default function SettingsPage() {
@@ -1610,6 +1770,7 @@ export default function SettingsPage() {
       {activeTab === 'doctypes'   && <DocTypesTab />}
       {activeTab === 'categories' && <CategoriesTab />}
       {activeTab === 'apikeys'    && isAdmin && <ApiKeysTab />}
+      {activeTab === 'backup'     && isAdmin && <BackupTab />}
 
       <div style={{ height: 32 }} />
     </div>

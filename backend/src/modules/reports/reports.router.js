@@ -632,7 +632,7 @@ router.get('/audit', requireRole('admin', 'manager'), async (req, res) => {
       db.query(`
         SELECT
           u.id,
-          COALESCE(u.full_name, u.username) AS display_name,
+          COALESCE(u.name, u.username) AS display_name,
           u.role,
           COUNT(al.id)::int                 AS total_actions,
           COUNT(CASE WHEN al.action IN ('delete','flag') THEN 1 END)::int AS sensitive_count,
@@ -640,7 +640,7 @@ router.get('/audit', requireRole('admin', 'manager'), async (req, res) => {
         FROM audit_logs al
         LEFT JOIN users u ON u.id = al.user_id
         ${where}
-        GROUP BY u.id, u.full_name, u.username, u.role
+        GROUP BY u.id, u.name, u.username, u.role
         ORDER BY total_actions DESC LIMIT 20`, params),
 
       db.query(`
@@ -658,7 +658,7 @@ router.get('/audit', requireRole('admin', 'manager'), async (req, res) => {
           al.resource_id,
           al.ip_address,
           al.created_at,
-          COALESCE(u.full_name, u.username, 'Hệ thống') AS user_name,
+          COALESCE(u.name, u.username, 'Hệ thống') AS user_name,
           u.role                                         AS user_role
         FROM audit_logs al
         LEFT JOIN users u ON u.id = al.user_id
@@ -714,6 +714,63 @@ router.post('/audit/archive', requireRole('admin'), async (req, res) => {
 // ── GET /api/reports/export ───────────────────────────────────────────────────
 const ExcelJS = require('exceljs')
 
+const EXPORT_TYPE_LABELS = {
+  records:   'Danh sách tài liệu',
+  summary:   'Tổng hợp',
+  financial: 'Tài chính',
+  staff:     'Nhân viên',
+  audit:     'Audit logs',
+}
+
+function _addInfoSheet(wb, { title, type, format, dateFrom, dateTo, filters = {}, rowCount = null } = {}) {
+  const ws = wb.addWorksheet('Thông tin')
+  ws.columns = [
+    { key: 'label', width: 24 },
+    { key: 'value', width: 54 },
+  ]
+
+  ws.mergeCells('A1:B1')
+  const titleCell = ws.getCell('A1')
+  titleCell.value = title || 'Báo cáo BBOTECH'
+  titleCell.font = { bold: true, size: 16, color: { argb: 'FF1F7A43' } }
+  titleCell.alignment = { vertical: 'middle' }
+  ws.getRow(1).height = 26
+
+  const lines = [
+    ['Loại báo cáo', EXPORT_TYPE_LABELS[type] || type],
+    ['Định dạng', String(format || 'xlsx').toUpperCase()],
+    ['Từ ngày', dateFrom || 'Không giới hạn'],
+    ['Đến ngày', dateTo || 'Không giới hạn'],
+    ['Nền tảng', filters.platform || 'Tất cả'],
+    ['Trạng thái', filters.status || 'Tất cả'],
+    ['Số dòng dữ liệu', rowCount == null ? 'Nhiều sheet' : rowCount],
+    ['Xuất lúc', new Date()],
+  ]
+
+  lines.forEach(([label, value], idx) => {
+    const row = ws.getRow(idx + 3)
+    row.values = [label, value]
+    row.getCell(1).font = { bold: true, color: { argb: 'FF334155' } }
+    row.getCell(2).font = { color: { argb: 'FF0F172A' } }
+    row.getCell(2).alignment = { wrapText: true }
+    if (value instanceof Date) row.getCell(2).numFmt = 'dd/mm/yyyy hh:mm'
+  })
+
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber < 3) return
+    row.height = 22
+    row.eachCell(cell => {
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FFE2E8F0' } },
+        bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+      }
+      cell.alignment = { vertical: 'middle', wrapText: true }
+    })
+  })
+
+  return ws
+}
+
 function _addSheet(wb, name, columns, rows) {
   const ws = wb.addWorksheet(name)
   ws.columns = columns.map(c => ({ key: c.key, header: c.header, width: c.width || 16 }))
@@ -725,7 +782,12 @@ function _addSheet(wb, name, columns, rows) {
     cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Calibri', size: 11 }
     cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F7A43' } }
     cell.alignment = { vertical: 'middle', horizontal: 'center' }
-    cell.border    = { bottom: { style: 'medium', color: { argb: 'FF155B32' } } }
+    cell.border    = {
+      top:    { style: 'thin',   color: { argb: 'FF155B32' } },
+      left:   { style: 'thin',   color: { argb: 'FF155B32' } },
+      bottom: { style: 'medium', color: { argb: 'FF155B32' } },
+      right:  { style: 'thin',   color: { argb: 'FF155B32' } },
+    }
   })
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } }
   ws.views = [{ state: 'frozen', ySplit: 1 }]
@@ -740,7 +802,12 @@ function _addSheet(wb, name, columns, rows) {
     const wsRow = ws.addRow(vals)
     wsRow.height = 22
     columns.forEach((c, ci) => {
-      if (c.isDate) wsRow.getCell(ci + 1).numFmt = 'dd/mm/yyyy hh:mm'
+      const cell = wsRow.getCell(ci + 1)
+      cell.alignment = { vertical: 'middle', wrapText: true }
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } } }
+      if (c.isDate) cell.numFmt = 'dd/mm/yyyy hh:mm'
+      if (c.numFmt) cell.numFmt = c.numFmt
+      if (c.align) cell.alignment = { ...cell.alignment, horizontal: c.align }
     })
     if (i % 2 === 1) {
       wsRow.eachCell({ includeEmpty: false }, cell => {
@@ -761,14 +828,30 @@ function _toCsv(columns, rows) {
       return `"${String(v).replace(/"/g, '""')}"`
     }).join(',')
   ).join('\r\n')
-  return '﻿' + header + '\r\n' + body
+  return '\ufeff' + header + '\r\n' + body
+}
+
+async function _sendWorkbook(res, wb, filename) {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
+  await wb.xlsx.write(res)
+  return res.end()
 }
 
 router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { type = 'records', format = 'xlsx', status: statusFilter } = req.query
+    const supportedTypes = new Set(['records', 'summary', 'financial', 'staff', 'audit'])
+    const supportedFormats = new Set(['xlsx', 'csv'])
+    if (!supportedTypes.has(type)) return res.status(400).json({ error: `Unknown export type: ${type}` })
+    if (!supportedFormats.has(format)) return res.status(400).json({ error: `Unsupported export format: ${format}` })
+    if (type === 'summary' && format !== 'xlsx') {
+      return res.status(400).json({ error: 'Summary export chỉ hỗ trợ Excel (.xlsx)' })
+    }
+
     const dateStr  = new Date().toISOString().slice(0, 10)
     const filename = `BBOTECH_${type}_${dateStr}`
+    const { date_from: exportDateFrom, date_to: exportDateTo, platform } = req.query
 
     // ── Audit: uses audit_logs table, handled separately ─────────────────────
     if (type === 'audit') {
@@ -781,7 +864,7 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       const { rows } = await db.query(`
         SELECT
           al.created_at,
-          COALESCE(u.full_name, u.username, 'Hệ thống') AS user_name,
+          COALESCE(u.name, u.username, 'Hệ thống') AS user_name,
           u.role,
           al.action,
           al.resource,
@@ -810,11 +893,16 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       }
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
+      wb.created = new Date()
+      _addInfoSheet(wb, {
+        title: 'Báo cáo Audit logs',
+        type, format,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        rowCount: rows.length,
+      })
       _addSheet(wb, 'Audit Logs', cols, rows)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
-      await wb.xlsx.write(res)
-      return res.end()
+      return _sendWorkbook(res, wb, filename)
     }
 
     // ── All other types: based on records table ───────────────────────────────
@@ -835,7 +923,7 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
           COALESCE(r.ocr_status::text, '—')     AS ocr_status,
           r.received_at,
           r.approved_at,
-          r.notes
+          r.note
         FROM records r
         LEFT JOIN document_types dt ON r.document_type_id = dt.id
         LEFT JOIN categories cat    ON r.category_id      = cat.id
@@ -852,7 +940,7 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
         { key: 'ocr_status',    header: 'OCR',           width: 14 },
         { key: 'received_at',   header: 'Nhận lúc',      width: 22, isDate: true },
         { key: 'approved_at',   header: 'Duyệt lúc',     width: 22, isDate: true },
-        { key: 'notes',         header: 'Ghi chú',       width: 30 },
+        { key: 'note',          header: 'Ghi chú',       width: 34 },
       ]
 
       if (format === 'csv') {
@@ -862,11 +950,17 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       }
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
+      wb.created = new Date()
+      _addInfoSheet(wb, {
+        title: 'Báo cáo danh sách tài liệu',
+        type, format,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        filters: { platform, status: statusFilter },
+        rowCount: rows.length,
+      })
       _addSheet(wb, 'Danh sách tài liệu', cols, rows)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
-      await wb.xlsx.write(res)
-      return res.end()
+      return _sendWorkbook(res, wb, filename)
     }
 
     // ── summary (multi-sheet XLSX only) ───────────────────────────────────────
@@ -901,6 +995,13 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
       wb.created = new Date()
+      _addInfoSheet(wb, {
+        title: 'Báo cáo tổng hợp',
+        type, format,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        rowCount: null,
+      })
       _addSheet(wb, 'Theo trạng thái', [
         { key: 'status', header: 'Trạng thái', width: 18 },
         { key: 'count',  header: 'Số lượng',   width: 14 },
@@ -921,10 +1022,7 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
         { key: 'count', header: 'Số lượng', width: 14 },
       ], timeline.rows)
 
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
-      await wb.xlsx.write(res)
-      return res.end()
+      return _sendWorkbook(res, wb, filename)
     }
 
     // ── financial ─────────────────────────────────────────────────────────────
@@ -943,11 +1041,11 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
           ROUND(MAX(rfv.value_number)::numeric, 2)    AS max_value
         FROM records r
         LEFT JOIN document_types dt       ON r.document_type_id = dt.id
-        LEFT JOIN record_field_values rfv ON rfv.record_id      = r.id
-        LEFT JOIN document_type_fields dtf ON dtf.id            = rfv.field_id
-          AND dtf.aggregation_type = 'sum'
+        JOIN record_field_values rfv      ON rfv.record_id      = r.id
           AND rfv.value_number IS NOT NULL
-        ${fw} AND rfv.id IS NOT NULL
+        JOIN document_type_fields dtf     ON dtf.id             = rfv.field_id
+          AND dtf.aggregation_type = 'sum'
+        ${fw}
         GROUP BY dt.name, dtf.label
         ORDER BY dt.name, total DESC`, params)
 
@@ -968,11 +1066,17 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       }
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
+      wb.created = new Date()
+      _addInfoSheet(wb, {
+        title: 'Báo cáo tài chính',
+        type, format,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        filters: { platform },
+        rowCount: rows.length,
+      })
       _addSheet(wb, 'Tổng hợp tài chính', cols, rows)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
-      await wb.xlsx.write(res)
-      return res.end()
+      return _sendWorkbook(res, wb, filename)
     }
 
     // ── staff ─────────────────────────────────────────────────────────────────
@@ -989,8 +1093,8 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
           COUNT(CASE WHEN r.status IN ('new','reviewed')     THEN 1 END)::int    AS pending,
           ROUND(COUNT(CASE WHEN r.status='approved' THEN 1 END)*100.0
             / NULLIF(COUNT(r.id),0), 1)                                          AS approval_rate,
-          ROUND(AVG(EXTRACT(EPOCH FROM (r.approved_at - r.received_at))/3600)
-            FILTER (WHERE r.approved_at IS NOT NULL)::numeric, 1)                AS avg_hours
+          ROUND((AVG(EXTRACT(EPOCH FROM (r.approved_at - r.received_at))/3600)
+            FILTER (WHERE r.approved_at IS NOT NULL AND r.approved_at > r.received_at))::numeric, 1) AS avg_hours
         FROM records r
         ${sw}
         GROUP BY r.sender_name, r.platform
@@ -1015,11 +1119,17 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
       }
       const wb = new ExcelJS.Workbook()
       wb.creator = 'BBOTECH'
+      wb.created = new Date()
+      _addInfoSheet(wb, {
+        title: 'Báo cáo nhân viên',
+        type, format,
+        dateFrom: exportDateFrom,
+        dateTo: exportDateTo,
+        filters: { platform },
+        rowCount: rows.length,
+      })
       _addSheet(wb, 'Nhân viên', cols, rows)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`)
-      await wb.xlsx.write(res)
-      return res.end()
+      return _sendWorkbook(res, wb, filename)
     }
 
     res.status(400).json({ error: `Unknown export type: ${type}` })

@@ -2321,7 +2321,7 @@ const AUDIT_ACTION_META = {
   password_change: { label: 'Đổi mật khẩu', color: '#0891b2' },
 }
 
-const SENSITIVE_ACTIONS = new Set(['delete', 'flag', 'password_change'])
+const SENSITIVE_ACTIONS = new Set(['delete', 'flag'])
 
 function auditActionLabel(action) {
   return AUDIT_ACTION_META[action]?.label ?? action
@@ -2356,6 +2356,22 @@ function AuditTab() {
 
   useEffect(() => { load() }, [load])
 
+  const resetFilters = async () => {
+    setPeriod('7d')
+    setCustomFrom('')
+    setCustomTo('')
+    setArchiveResult(null)
+    setLoading(true)
+    try {
+      const { date_from, date_to } = buildPeriod('7d', '', '')
+      setData(await getReportsAudit({ date_from, date_to }))
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleArchive = async () => {
     if (!window.confirm(`Lưu trữ toàn bộ log cũ hơn ${archiveMonths} tháng? Thao tác này không thể hoàn tác.`)) return
     setArchiving(true)
@@ -2383,7 +2399,7 @@ function AuditTab() {
     <div className="rpt-tab-body">
 
       {/* Filter bar */}
-      <div className="rpt-filter-bar">
+      <div className="rpt-filter-bar rpt-audit-filter">
         <div className="rpt-period-pills">
           {PERIOD_PRESETS.map(p => (
             <button key={p.key}
@@ -2405,9 +2421,14 @@ function AuditTab() {
             </div>
           </div>
         )}
-        <button className="rpt-filter-btn" onClick={load} disabled={loading}>
-          {loading ? 'Đang tải…' : 'Áp dụng'}
-        </button>
+        <div className="rpt-audit-filter-actions">
+          <button className="rpt-filter-btn rpt-filter-btn--ghost" onClick={resetFilters} disabled={loading}>
+            Xóa bộ lọc
+          </button>
+          <button className="rpt-filter-btn rpt-filter-btn--primary" onClick={load} disabled={loading}>
+            {loading ? 'Đang tải…' : 'Áp dụng'}
+          </button>
+        </div>
       </div>
 
       {/* KPI strip */}
@@ -2426,6 +2447,7 @@ function AuditTab() {
             style={{ color: Number(s.sensitive_count) > 0 ? '#dc2626' : 'var(--ink)' }}>
             {loading ? '—' : Number(s.sensitive_count ?? 0).toLocaleString('vi-VN')}
           </div>
+          <div className="rpt-audit-sensitive-note">Gồm: Xóa, Gắn cờ</div>
         </div>
         <div className="rpt-staff-strip-item">
           <div className="rpt-staff-strip-label">Log mới nhất</div>
@@ -2953,6 +2975,7 @@ export default function ReportsPage() {
   const visibleTabs = TABS.filter(t => !t.roles || t.roles.includes(userRole))
 
   const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'overview')
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   // Reset tab if current tab becomes inaccessible after role change
   useEffect(() => {
@@ -2961,12 +2984,52 @@ export default function ReportsPage() {
     }
   }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const onFsChange = () => {
+      const active = !!document.fullscreenElement
+      setIsFullscreen(active)
+      document.body.classList.toggle('app-fullscreen', active)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.body.classList.remove('app-fullscreen')
+    }
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.()
+    } else {
+      document.exitFullscreen?.()
+    }
+  }, [])
+
   return (
     <div className="rpt-page">
       <div className="rpt-header">
         <div>
           <div className="rpt-header-title">Báo cáo</div>
           <div className="rpt-header-sub">Phân tích hiệu suất và tổng hợp dữ liệu định kỳ</div>
+        </div>
+        <div className="rpt-header-actions">
+          <button
+            className="rpt-header-fs-btn"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Thoát toàn màn hình (ESC)' : 'Xem toàn màn hình'}
+          >
+            {isFullscreen ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                <path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+              </svg>
+            )}
+          </button>
         </div>
       </div>
 

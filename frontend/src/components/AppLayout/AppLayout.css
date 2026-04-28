@@ -541,3 +541,6 @@ body.app-fullscreen .content  { padding-bottom: 0; }
 body.app-fullscreen .recPage  { padding: 20px 24px; }
 body.app-fullscreen .dtv-page { padding: 20px 24px; }
 body.app-fullscreen .dashPage { padding: 20px 28px; }
+body.app-fullscreen .rpt-header { padding: 20px 24px 0; }
+body.app-fullscreen .rpt-tabnav { padding: 18px 24px 0; }
+body.app-fullscreen .rpt-tab-body { padding: 22px 24px 32px; }

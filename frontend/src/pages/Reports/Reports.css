@@ -8,6 +8,11 @@
 
 /* ── Header ── */
 .rpt-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 32px 32px 0;
 }
 
@@ -23,6 +28,33 @@
   font-size: 13px;
   color: var(--ink3);
   margin-top: 3px;
+}
+
+.rpt-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rpt-header-fs-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.rpt-header-fs-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #f0faf4;
 }
 
 /* ── Tab nav ── */
@@ -169,6 +201,28 @@
 
 .rpt-date-input:focus {
   border-color: var(--primary);
+}
+
+.rpt-filter-input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1.5px solid var(--line2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+
+.rpt-filter-input:hover {
+  border-color: #c8d2dc;
+}
+
+.rpt-filter-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(31, 122, 67, .08);
 }
 
 .rpt-toggle-label {
@@ -1520,6 +1574,22 @@
   gap: 18px;
 }
 
+.rpt-export-config-grid .bbo-card {
+  overflow: hidden;
+}
+
+.rpt-export-config-grid .rpt-custom-range {
+  flex-wrap: wrap;
+}
+
+.rpt-export-config-grid .rpt-filter-group {
+  flex: 1 1 180px;
+}
+
+.rpt-export-config-grid .rpt-filter-input {
+  width: 100%;
+}
+
 /* Format pills */
 .rpt-export-format-pills {
   display: flex;
@@ -1723,6 +1793,170 @@
 .rpt-coming-desc  { font-size: 13.5px; color: var(--ink3); max-width: 380px; line-height: 1.65; }
 
 /* ── Audit tab ── */
+
+.rpt-audit-filter {
+  align-items: flex-end;
+  gap: 12px 14px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.rpt-audit-sensitive-note {
+  margin-top: 5px;
+  color: var(--ink3);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.rpt-audit-filter .rpt-period-pills {
+  gap: 8px;
+}
+
+.rpt-audit-filter .rpt-period-pill {
+  height: 36px;
+  min-width: 86px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.rpt-audit-filter .rpt-custom-range {
+  gap: 10px;
+}
+
+.rpt-audit-filter .rpt-filter-group {
+  gap: 5px;
+}
+
+.rpt-audit-filter .rpt-filter-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--ink3);
+  letter-spacing: .5px;
+}
+
+.rpt-audit-filter .rpt-filter-input {
+  height: 36px;
+  min-width: 136px;
+  padding: 0 12px;
+  border: 1.5px solid var(--line2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+
+.rpt-audit-filter .rpt-filter-input:hover {
+  border-color: #c8d2dc;
+}
+
+.rpt-audit-filter .rpt-filter-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(31, 122, 67, .08);
+}
+
+.rpt-audit-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rpt-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  min-width: 104px;
+  padding: 0 16px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink2);
+  cursor: pointer;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s, box-shadow .12s, transform .1s;
+}
+
+.rpt-filter-btn:hover:not(:disabled) {
+  border-color: #c8d2dc;
+  box-shadow: var(--shadow-xs);
+  transform: translateY(-1px);
+}
+
+.rpt-filter-btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.rpt-filter-btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(31, 122, 67, .16);
+}
+
+.rpt-filter-btn--primary:hover:not(:disabled) {
+  background: var(--primary-dark, #157a2f);
+  border-color: var(--primary-dark, #157a2f);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(31, 122, 67, .22);
+}
+
+.rpt-filter-btn--ghost:hover:not(:disabled) {
+  background: #f4f7fa;
+}
+
+@media (max-width: 900px) {
+  .rpt-audit-filter {
+    align-items: stretch;
+  }
+
+  .rpt-audit-filter .rpt-period-pills,
+  .rpt-audit-filter .rpt-custom-range,
+  .rpt-audit-filter-actions {
+    width: 100%;
+  }
+
+  .rpt-audit-filter .rpt-custom-range {
+    flex-wrap: wrap;
+  }
+
+  .rpt-audit-filter .rpt-filter-group {
+    flex: 1 1 180px;
+  }
+
+  .rpt-audit-filter-actions {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .rpt-audit-filter .rpt-period-pill {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+  }
+
+  .rpt-audit-filter .rpt-custom-range,
+  .rpt-audit-filter-actions {
+    flex-direction: column;
+  }
+
+  .rpt-audit-filter .rpt-filter-group,
+  .rpt-audit-filter .rpt-filter-input,
+  .rpt-filter-btn {
+    width: 100%;
+  }
+}
 
 .rpt-audit-action-list {
   display: flex;

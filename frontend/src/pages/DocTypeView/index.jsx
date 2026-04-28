@@ -256,6 +256,7 @@ export default function DocTypeViewPage() {
   const [aggregations, setAggregations] = useState([])
   const [isFullscreen,    setIsFullscreen]    = useState(false)
   const [filterCollapsed, setFilterCollapsed] = useState(false)
+  const [filterPinned,    setFilterPinned]    = useState(false)
 
   // Column visibility
   const [visibleCols,  setVisibleCols]  = useState(new Set())
@@ -303,11 +304,36 @@ export default function DocTypeViewPage() {
       const active = !!document.fullscreenElement
       setIsFullscreen(active)
       document.body.classList.toggle('app-fullscreen', active)
+      if (!active) setFilterPinned(false)
     }
     document.addEventListener('fullscreenchange', onFsChange)
     return () => {
       document.removeEventListener('fullscreenchange', onFsChange)
       document.body.classList.remove('app-fullscreen')
+    }
+  }, [])
+
+  useEffect(() => {
+    const mainArea = document.querySelector('.mainArea')
+    const getScrollTop = () => Math.max(window.scrollY || 0, mainArea?.scrollTop || 0)
+    const onScroll = () => {
+      const fullscreenActive = !!document.fullscreenElement || document.body.classList.contains('app-fullscreen')
+      if (!fullscreenActive) {
+        setFilterPinned(false)
+        return
+      }
+      const shouldPin = getScrollTop() > 96
+      setFilterPinned(shouldPin)
+      setFilterCollapsed(shouldPin)
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    mainArea?.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      mainArea?.removeEventListener('scroll', onScroll)
     }
   }, [])
 
@@ -829,7 +855,7 @@ export default function DocTypeViewPage() {
         </div>
       </div>
 
-      <div className="bbo-card dtv-filters">
+      <div className={`bbo-card dtv-filters${filterCollapsed ? ' dtv-filters--collapsed' : ''}${filterPinned ? ' dtv-filters--pinned' : ''}`}>
         <div className="dtv-filters__header">
           <div className="dtv-filters__header-left">
             <span className="dtv-filters__title">Bộ lọc</span>
@@ -838,6 +864,27 @@ export default function DocTypeViewPage() {
                 {activeFilterCount} đang bật
               </span>
             )}
+          </div>
+          <div className="dtv-filters__summary" aria-hidden={!(filterCollapsed || filterPinned)}>
+            <div className="dtv-filter-stat">
+              <span className="dtv-filter-stat__value">{stats.total.toLocaleString()}</span>
+              <span className="dtv-filter-stat__label">Tổng</span>
+            </div>
+            <div className="dtv-filters__summary-divider" />
+            <div className="dtv-filter-stat">
+              <span className="dtv-filter-stat__value dtv-filter-stat__value--need">{needCount.toLocaleString()}</span>
+              <span className="dtv-filter-stat__label">Cần xử lý</span>
+            </div>
+            <div className="dtv-filters__summary-divider" />
+            <div className="dtv-filter-stat">
+              <span className="dtv-filter-stat__value dtv-filter-stat__value--approved">{stats.approved.toLocaleString()}</span>
+              <span className="dtv-filter-stat__label">Đã duyệt · {approvedPct}%</span>
+            </div>
+            <div className="dtv-filters__summary-divider" />
+            <div className="dtv-filter-stat">
+              <span className="dtv-filter-stat__value dtv-filter-stat__value--flag">{stats.flagged.toLocaleString()}</span>
+              <span className="dtv-filter-stat__label">Bị flag</span>
+            </div>
           </div>
           <button
             className="dtv-filters__toggle"

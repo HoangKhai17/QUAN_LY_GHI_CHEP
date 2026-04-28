@@ -398,6 +398,7 @@ export default function RecordsPage() {
 
   const [isFullscreen,     setIsFullscreen]     = useState(false)
   const [filterCollapsed,  setFilterCollapsed]  = useState(false)
+  const [filterPinned,     setFilterPinned]     = useState(false)
   const [exporting,        setExporting]        = useState(false)
 
   useEffect(() => {
@@ -405,6 +406,7 @@ export default function RecordsPage() {
       const active = !!document.fullscreenElement
       setIsFullscreen(active)
       document.body.classList.toggle('app-fullscreen', active)
+      if (!active) setFilterPinned(false)
     }
     document.addEventListener('fullscreenchange', onFsChange)
     return () => {
@@ -420,6 +422,30 @@ export default function RecordsPage() {
       document.exitFullscreen()
     }
   }
+
+  useEffect(() => {
+    const mainArea = document.querySelector('.mainArea')
+    const getScrollTop = () => Math.max(window.scrollY || 0, mainArea?.scrollTop || 0)
+    const onScroll = () => {
+      const fullscreenActive = !!document.fullscreenElement || document.body.classList.contains('app-fullscreen')
+      if (!fullscreenActive) {
+        setFilterPinned(false)
+        return
+      }
+      const shouldPin = getScrollTop() > 96
+      setFilterPinned(shouldPin)
+      setFilterCollapsed(shouldPin)
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    mainArea?.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      mainArea?.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   async function exportCurrentRecords() {
     if (total <= 0) {
@@ -509,13 +535,34 @@ export default function RecordsPage() {
       </div>
 
       {/* ── Advanced filter bar ── */}
-      <div className="recFilterCard bbo-card">
+      <div className={`recFilterCard bbo-card${filterCollapsed ? ' recFilterCard--collapsed' : ''}${filterPinned ? ' recFilterCard--pinned' : ''}`}>
         <div className="recFilterHeader">
           <div className="recFilterHeader__left">
             <span className="recFilterHeader__title">Bộ lọc</span>
             {activeFilters.length > 0 && (
               <span className="recFilterHeader__badge">{activeFilters.length} đang bật</span>
             )}
+          </div>
+          <div className="recFilterHeader__summary" aria-hidden={!(filterCollapsed || filterPinned)}>
+            <div className="recFilterHeaderStat">
+              <span className="recFilterHeaderStat__value">{stats.total.toLocaleString()}</span>
+              <span className="recFilterHeaderStat__label">Tổng</span>
+            </div>
+            <div className="recFilterHeader__summaryDivider" />
+            <div className="recFilterHeaderStat">
+              <span className="recFilterHeaderStat__value recFilterHeaderStat__value--need">{needCount.toLocaleString()}</span>
+              <span className="recFilterHeaderStat__label">Cần xử lý</span>
+            </div>
+            <div className="recFilterHeader__summaryDivider" />
+            <div className="recFilterHeaderStat">
+              <span className="recFilterHeaderStat__value recFilterHeaderStat__value--approved">{stats.approved.toLocaleString()}</span>
+              <span className="recFilterHeaderStat__label">Đã duyệt · {approvedPct}%</span>
+            </div>
+            <div className="recFilterHeader__summaryDivider" />
+            <div className="recFilterHeaderStat">
+              <span className="recFilterHeaderStat__value recFilterHeaderStat__value--flag">{stats.flagged.toLocaleString()}</span>
+              <span className="recFilterHeaderStat__label">Bị flag</span>
+            </div>
           </div>
           <button
             className="recFilterHeader__toggle"

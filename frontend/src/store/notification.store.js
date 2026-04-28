@@ -34,6 +34,16 @@ const useNotificationStore = create((set) => ({
     pendingCount: pending ?? state.pendingCount,
   })),
 
+  // Pre-populate từ API records khi mount (tránh dropdown rỗng sau refresh)
+  setEvents: (records) => set({
+    events: records.map(r => ({
+      id:     r.id,
+      type:   'new_record',
+      record: { id: r.id, sender_name: r.sender_name, platform: r.platform },
+      time:   r.received_at,
+    })),
+  }),
+
   clearEvents: () => set({ events: [] }),
 }))
 

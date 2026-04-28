@@ -1931,3 +1931,259 @@
   color: var(--ink3);
   margin-top: 4px;
 }
+
+/* ── Activity Logs Tab ────────────────────────────────────────────────────── */
+
+.alog-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Filter bar */
+.alog-filter-bar {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px 12px;
+  margin-bottom: 16px;
+}
+.alog-filter-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.alog-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.alog-filter-group label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.alog-filter-group--search { flex: 1; min-width: 160px; }
+.alog-input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ink);
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+.alog-input:focus { border-color: var(--primary); }
+.alog-apply-btn {
+  height: 34px;
+  padding: 0 18px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  align-self: flex-end;
+}
+.alog-apply-btn:hover { opacity: .88; }
+.alog-total-row {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+/* Table */
+.alog-table-wrap {
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.alog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.alog-table thead tr {
+  background: #f8fafb;
+  border-bottom: 1.5px solid var(--border);
+}
+.alog-table th {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  text-align: left;
+  white-space: nowrap;
+}
+.alog-row {
+  border-bottom: 1px solid var(--border);
+  transition: background .12s;
+}
+.alog-row:last-child { border-bottom: none; }
+.alog-row:hover { background: #f8fafb; }
+.alog-table td { padding: 10px 14px; vertical-align: middle; }
+
+.alog-cell-time { font-size: 12px; color: var(--ink2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.alog-user-name { font-weight: 600; color: var(--ink); }
+.alog-user-role { font-size: 11px; color: var(--ink3); text-transform: capitalize; }
+.alog-system    { color: var(--ink3); font-style: italic; }
+
+.alog-action-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.alog-cell-resource { white-space: nowrap; }
+.alog-resource { font-weight: 600; color: var(--ink2); }
+.alog-resource-id {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink3);
+  font-family: monospace;
+}
+.alog-cell-ip { font-size: 11.5px; color: var(--ink3); font-family: monospace; }
+
+.alog-detail-btn {
+  padding: 3px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--primary);
+  background: rgba(31,122,67,.06);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.alog-detail-btn:hover { background: rgba(31,122,67,.13); }
+
+.alog-loading, .alog-empty {
+  text-align: center;
+  color: var(--ink3);
+  padding: 40px 20px;
+  font-size: 13.5px;
+}
+.alog-no-data { color: var(--ink3); }
+
+/* Pagination */
+.alog-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 0 4px;
+}
+.alog-page-btn {
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink2);
+  font-family: inherit;
+}
+.alog-page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.alog-page-btn:disabled { opacity: .35; cursor: default; }
+.alog-page-info { font-size: 13px; color: var(--ink2); padding: 0 6px; }
+
+/* Detail modal */
+.alog-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.alog-modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18);
+  overflow: hidden;
+}
+.alog-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+.alog-modal-title { font-size: 15px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.alog-modal-close {
+  width: 28px; height: 28px;
+  border: none; background: none;
+  font-size: 16px; cursor: pointer;
+  color: var(--ink3); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+.alog-modal-close:hover { background: #f1f5f9; }
+.alog-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #f8fafb;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--ink2);
+  flex-shrink: 0;
+}
+.alog-modal-body { padding: 16px 20px; overflow-y: auto; }
+
+/* Diff view */
+.alog-diff { display: flex; gap: 12px; flex-wrap: wrap; }
+.alog-diff-block { flex: 1; min-width: 200px; }
+.alog-diff-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 6px;
+}
+.alog-diff-block--old .alog-diff-label { color: #dc2626; }
+.alog-diff-block--new .alog-diff-label { color: #1f7a43; }
+.alog-diff-json {
+  background: #f8fafb;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.alog-diff-block--old .alog-diff-json { border-color: #fecaca; background: #fff5f5; }
+.alog-diff-block--new .alog-diff-json { border-color: #bbf7d0; background: #f0fff4; }

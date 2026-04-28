@@ -20,7 +20,8 @@ const router = require('express').Router()
 const db     = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
-const { makeCacheMiddleware } = require('../../middlewares/cache.middleware')
+const { makeCacheMiddleware, clearAll } = require('../../middlewares/cache.middleware')
+const { logAudit } = require('../../services/audit.service')
 
 router.use(requireAuth)
 router.use(makeCacheMiddleware({ ttl: 60_000 }))
@@ -694,6 +695,15 @@ router.post('/audit/archive', requireRole('admin'), async (req, res) => {
       FROM moved
       RETURNING id`, [months])
 
+    clearAll()
+    logAudit({
+      userId: req.user.sub,
+      action: 'audit_archived',
+      resource: 'audit_logs',
+      newData: { archived: result.rowCount, cutoff_months: months },
+      req,
+    })
+
     res.json({ archived: result.rowCount, cutoff_months: months })
   } catch (err) {
     console.error('[reports/audit/archive]', err.message)
@@ -1016,6 +1026,76 @@ router.get('/export', requireRole('admin', 'manager'), async (req, res) => {
   } catch (err) {
     console.error('[reports/export]', err.message)
     if (!res.headersSent) res.status(500).json({ error: err.message })
+  }
+})
+
+// ── GET /api/reports/audit/logs (admin only) ─────────────────────────────────
+router.get('/audit/logs', requireRole('admin'), async (req, res) => {
+  try {
+    const {
+      date_from, date_to, user_id, resource,
+      action,   // comma-separated: approve,flag,delete
+      search,   // tìm trong user name
+      page  = 1,
+      limit = 50,
+    } = req.query
+
+    const conditions = []
+    const filterParams = []
+
+    if (date_from) conditions.push(`al.created_at::date >= $${filterParams.push(date_from)}::date`)
+    if (date_to)   conditions.push(`al.created_at::date <= $${filterParams.push(date_to)}::date`)
+    if (user_id)   conditions.push(`al.user_id = $${filterParams.push(user_id)}::uuid`)
+    if (resource)  conditions.push(`al.resource = $${filterParams.push(resource)}`)
+
+    if (action) {
+      const actions = action.split(',').map(a => a.trim()).filter(Boolean)
+      if (actions.length) {
+        const placeholders = actions.map(a => `$${filterParams.push(a)}`).join(', ')
+        conditions.push(`al.action IN (${placeholders})`)
+      }
+    }
+
+    if (search) {
+      conditions.push(`u.name ILIKE $${filterParams.push(`%${search}%`)}`)
+    }
+
+    const where  = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    const lim    = Math.max(1, Math.min(200, Number(limit)))
+    const offset = (Math.max(1, Number(page)) - 1) * lim
+
+    const baseSQL = `FROM audit_logs al LEFT JOIN users u ON al.user_id = u.id ${where}`
+
+    const [dataRes, countRes] = await Promise.all([
+      db.query(
+        `SELECT
+           al.id, al.user_id,
+           u.name  AS user_name,
+           u.role  AS user_role,
+           al.action, al.resource, al.resource_id,
+           al.old_data, al.new_data,
+           al.ip_address, al.created_at
+         ${baseSQL}
+         ORDER BY al.created_at DESC
+         LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}`,
+        [...filterParams, lim, offset]
+      ),
+      db.query(
+        `SELECT COUNT(*)::int AS total ${baseSQL}`,
+        filterParams
+      ),
+    ])
+
+    const total = countRes.rows[0]?.total ?? 0
+    res.json({
+      data:        dataRes.rows,
+      total,
+      page:        Number(page),
+      total_pages: Math.ceil(total / lim),
+    })
+  } catch (err) {
+    console.error('[reports/audit/logs]', err.message)
+    res.status(500).json({ error: err.message })
   }
 })
 

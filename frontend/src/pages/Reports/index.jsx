@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getReportsSummary, getReportsFinancial, getReportsStaff, getReportsHeatmap, getReportsQuality, getReportsSla, getReportsBacklog, getReportsDocTrend, getReportsAudit, archiveAuditLogs, exportReport } from '../../services/reports.service'
+import { getReportsSummary, getReportsFinancial, getReportsStaff, getReportsHeatmap, getReportsQuality, getReportsSla, getReportsBacklog, getReportsDocTrend, getReportsAudit, archiveAuditLogs, exportReport, getAuditLogs } from '../../services/reports.service'
 import useAuthStore from '../../store/auth.store'
 import './Reports.css'
 

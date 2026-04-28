@@ -163,12 +163,14 @@ export default function RecordsPage() {
   const _initDraft = getDefaultDraft()
   const { date_from: _initFrom, date_to: _initTo } = periodToDateRange(_initDraft.period_year, _initDraft.period_month)
 
+  const _initSearch = searchParams.get('q') ?? ''
+
   const {
     records, total, page, filters, loading,
     updateFilters, setPage,
     updateRecord, removeRecord,
   } = useRecordsQuery(
-    { status: searchParams.get('status') ?? '', date_from: _initFrom, date_to: _initTo },
+    { status: searchParams.get('status') ?? '', search: _initSearch, date_from: _initFrom, date_to: _initTo },
     pageSize,
   )
 
@@ -179,14 +181,16 @@ export default function RecordsPage() {
 
   useEffect(() => {
     const s = searchParams.get('status')
+    const q = searchParams.get('q')
     if (s) updateFilters({ status: s })
+    if (q) updateFilters({ search: q })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const { record: detailRec, loading: loadingDetail, openById, close: closeDetail, refetch: refetchDetail } = useRecordDetail()
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const [draft, setDraft]           = useState(getDefaultDraft)
+  const [draft, setDraft]           = useState(() => ({ ...getDefaultDraft(), search: _initSearch }))
   const [categories, setCategories]         = useState([])
   const [docTypes, setDocTypes]             = useState([])
   const [senders, setSenders]               = useState([])

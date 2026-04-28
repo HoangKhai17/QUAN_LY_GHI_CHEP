@@ -30,6 +30,9 @@ function IconTable() {
 function IconSettings() {
   return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
 }
+function IconLog() {
+  return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+}
 function IconBell() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
 }
@@ -63,15 +66,17 @@ const NAV_MAIN = [
   { to: '/app/reports',   label: 'Báo cáo',         Icon: IconChart },
 ]
 const NAV_ADMIN = [
-  { to: '/app/settings', label: 'Cài đặt', Icon: IconSettings },
+  { to: '/app/activity-logs', label: 'Nhật ký hệ thống', Icon: IconLog,      roles: ['admin'] },
+  { to: '/app/settings',      label: 'Cài đặt',          Icon: IconSettings, roles: ['admin','manager'] },
 ]
 
 const PAGE_TITLES = {
-  '/app/dashboard': 'Dashboard',
-  '/app/records':   'Danh sách Record',
-  '/app/doc-types': 'Phân loại',
-  '/app/reports':   'Báo cáo',
-  '/app/settings':  'Cài đặt',
+  '/app/dashboard':    'Dashboard',
+  '/app/records':      'Danh sách Record',
+  '/app/doc-types':    'Phân loại',
+  '/app/reports':      'Báo cáo',
+  '/app/activity-logs':'Nhật ký hệ thống',
+  '/app/settings':     'Cài đặt',
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -79,11 +84,20 @@ export default function AppLayout() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const { user, logout, accessToken } = useAuthStore()
-  const { pendingCount, events, setPendingCount, pushNewRecord, syncPending } = useNotificationStore()
+  const { pendingCount, events, setPendingCount, setEvents, pushNewRecord, syncPending } = useNotificationStore()
 
-  const [collapsed, setCollapsed] = useState(false)
-  const [menuOpen,  setMenuOpen]  = useState(false)
-  const [bellOpen,  setBellOpen]  = useState(false)
+  const [collapsed,    setCollapsed]    = useState(false)
+  const [menuOpen,     setMenuOpen]     = useState(false)
+  const [bellOpen,     setBellOpen]     = useState(false)
+  const [headerSearch, setHeaderSearch] = useState('')
+
+  function handleHeaderSearch(e) {
+    if (e.key !== 'Enter') return
+    const q = headerSearch.trim()
+    if (!q) return
+    setHeaderSearch('')
+    navigate(`/app/records?q=${encodeURIComponent(q)}`)
+  }
   const pillRef = useRef(null)
   const bellRef = useRef(null)
 
@@ -105,8 +119,14 @@ export default function AppLayout() {
     const token = accessToken || localStorage.getItem('access_token')
     if (!token) return
 
+    // Lấy pending count
     api.get('/api/notifications/summary')
       .then(res => setPendingCount(res.data.pending))
+      .catch(() => {})
+
+    // Pre-populate dropdown với 8 record mới nhất (tránh dropdown rỗng sau refresh)
+    api.get('/api/records', { params: { status: 'new', limit: 8, page: 1 } })
+      .then(res => setEvents(res.data.data || []))
       .catch(() => {})
 
     const socket = connectSocket(token)
@@ -194,7 +214,7 @@ export default function AppLayout() {
 
           <div className="navSection">
             <div className="navSectionLabel">Quản trị hệ thống</div>
-            {NAV_ADMIN.map(({ to, label, Icon }) => (
+            {NAV_ADMIN.filter(n => !n.roles || n.roles.includes(user?.role)).map(({ to, label, Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -241,6 +261,9 @@ export default function AppLayout() {
                 className="headerSearchInput"
                 type="text"
                 placeholder="Tìm kiếm record, người gửi…"
+                value={headerSearch}
+                onChange={e => setHeaderSearch(e.target.value)}
+                onKeyDown={handleHeaderSearch}
               />
             </div>
             {/* Bell */}
@@ -261,7 +284,7 @@ export default function AppLayout() {
                   <div className="bellDropdown__header">
                     <span>Thông báo</span>
                     {pendingCount > 0 && (
-                      <span className="bellDropdown__pending">{pendingCount} cần xử lý</span>
+                      <span className="bellDropdown__pending">{pendingCount} record mới</span>
                     )}
                   </div>
                   <div className="bellDropdown__list">

@@ -50,6 +50,11 @@ export async function archiveAuditLogs(months = 12) {
   return data
 }
 
+export async function getAuditLogs(params = {}) {
+  const { data } = await api.get('/api/reports/audit/logs', { params })
+  return data
+}
+
 export async function exportReport(params = {}) {
   const response = await api.get('/api/reports/export', { params, responseType: 'blob' })
   return response

@@ -15,6 +15,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const axios = require('axios')
 const logger = require('../../config/logger')
+const documentTypesService = require('../document-types.service')
 
 // ── Dynamic config (60s TTL cache, reads from DB via settingsService) ─────────
 
@@ -40,16 +41,19 @@ async function _getConfig() {
   return _cfgCache
 }
 
-// ── Prompt ────────────────────────────────────────────────────────────────────
-const EXTRACTION_PROMPT = `Bạn là AI chuyên đọc và trích xuất dữ liệu từ ảnh chứng từ doanh nghiệp Việt Nam.
+// ── Prompt builder ────────────────────────────────────────────────────────────
 
-Phân tích ảnh và trả về JSON theo đúng format sau (không bọc trong markdown code fence):
+const DEFAULT_BUSINESS_PROMPT = `Bạn là AI chuyên đọc và trích xuất dữ liệu từ ảnh chứng từ doanh nghiệp Việt Nam.
+Hãy phân loại đúng loại tài liệu dựa trên nội dung ảnh và trích xuất các trường dữ liệu theo schema hệ thống cung cấp.
+Ưu tiên dữ liệu nhìn thấy rõ trong ảnh; không tự suy diễn nếu ảnh mờ, thiếu hoặc không chắc chắn.`
+
+const OUTPUT_CONTRACT_PROMPT = `Phân tích ảnh và chỉ trả về JSON thuần theo đúng format sau, không markdown, không text trước/sau:
 
 {
   "classification": {
-    "document_type_code": "<một trong các code bên dưới>",
+    "document_type_code": "<một code trong schema document types>",
     "category_code": "<general | invoice | work_report | inventory | other>",
-    "confidence": <số thực 0.0–1.0>,
+    "confidence": <số thực 0.0-1.0>,
     "reasoning": "<lý do ngắn gọn tại sao chọn loại này>"
   },
   "fields": {
@@ -58,50 +62,69 @@ Phân tích ảnh và trả về JSON theo đúng format sau (không bọc trong
   "raw_text": "<TOÀN BỘ text đọc được từ ảnh, giữ nguyên xuống dòng>"
 }
 
-── Các loại chứng từ (document_type_code) và field tương ứng ──────────────────
+Quy tắc bắt buộc:
+- Chỉ trả JSON thuần, không bọc trong markdown code fence.
+- document_type_code phải là một trong các code đang active trong schema. Nếu không khớp loại nào, chọn "other" nếu schema có "other"; nếu không có "other", chọn loại gần nhất và giảm confidence.
+- fields chỉ dùng field_key có trong schema của document_type_code đã chọn.
+- Với field không đọc được hoặc không có trong ảnh, trả null.
+- Số tiền: trả số nguyên VND, không có dấu phân cách. Ví dụ: 1500000.
+- Ngày: trả YYYY-MM-DD. Nếu chỉ có tháng/năm thì dùng ngày 01.
+- Boolean: trả true/false.
+- JSON/list: trả object hoặc array hợp lệ.
+- confidence: 0.9=rất rõ ràng, 0.7=tương đối rõ, 0.5=có thể đoán, 0.3=rất mờ.
+- Không tự bịa số liệu nếu ảnh không rõ.`
 
-bank_transfer — Chuyển khoản ngân hàng
-  amount(số VND), transfer_date(YYYY-MM-DD), reference_number, transaction_code,
-  bank_name, account_number, account_holder, transfer_content, payer_name
+function _compactText(value, max = 220) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text
+}
 
-weighing_slip — Phiếu cân xe
-  vehicle_number, ticket_number, customer_name, item_name,
-  gross_weight(số kg), empty_weight(số kg), net_weight(số kg),
-  weighing_type("in" hoặc "out"), weighing_date(YYYY-MM-DD), time_in, time_out
+function _fieldHint(field) {
+  const parts = [field.data_type]
+  if (field.unit) parts.push(`unit=${field.unit}`)
+  if (field.is_required) parts.push('required')
+  const options = Array.isArray(field.config?.options) ? field.config.options : null
+  if (options?.length) parts.push(`options=${options.map(o => JSON.stringify(o)).join('|')}`)
+  return parts.join(', ')
+}
 
-restaurant_receipt — Hóa đơn ăn uống / nhà hàng
-  restaurant_name, receipt_number, receipt_date(YYYY-MM-DD),
-  items([{"name":"...","qty":1,"price":0}]),
-  subtotal(số VND), discount(số VND), tax(số VND), total_amount(số VND)
+async function _buildDocumentTypesSchemaPrompt() {
+  const types = (await documentTypesService.getAll()).filter(t => t.is_active !== false)
 
-expense_receipt — Phiếu chi
-  receipt_number, receipt_date(YYYY-MM-DD), payee_name,
-  amount(số VND), description, payment_method("cash"|"transfer"|"other"), approved_by
+  if (!types.length) {
+    return 'Không có document type active trong DB. Trả document_type_code=null, fields={}, raw_text vẫn phải đọc nếu có.'
+  }
 
-income_receipt — Phiếu thu
-  receipt_number, receipt_date(YYYY-MM-DD), payer_name,
-  amount(số VND), description, payment_method("cash"|"transfer"|"other")
+  const lines = ['Schema document types đang active trong hệ thống:']
 
-work_report — Báo cáo công việc / biên bản họp
-  report_date(YYYY-MM-DD), title, assignee_name, summary,
-  status_report("complete"|"in_progress"|"blocked")
+  for (const type of types) {
+    lines.push('')
+    lines.push(`${type.code} - ${type.name}${type.description ? ` - ${_compactText(type.description)}` : ''}`)
+    if (!type.fields?.length) {
+      lines.push('  Không có field cấu hình; trả fields={} nếu chọn loại này.')
+      continue
+    }
+    for (const field of type.fields) {
+      lines.push(`  - ${field.field_key}: ${field.label} (${_fieldHint(field)})`)
+    }
+  }
 
-inspection_report — Phiếu kiểm tra / kiểm nghiệm / nghiệm thu
-  inspection_date(YYYY-MM-DD), inspector_name, location,
-  result("pass"|"fail"|"conditional"), notes
+  return lines.join('\n')
+}
 
-other — Chứng từ không thuộc các loại trên
-  document_date(YYYY-MM-DD), description, amount(số VND nếu có)
+async function _buildExtractionPrompt() {
+  const { getSetting } = require('../settings.service')
+  const [customPrompt, schemaPrompt] = await Promise.all([
+    getSetting('ai_extraction_prompt'),
+    _buildDocumentTypesSchemaPrompt(),
+  ])
 
-── Quy tắc bắt buộc ──────────────────────────────────────────────────────────
-- Chỉ trả JSON thuần, không có text trước/sau, không markdown
-- Số tiền: chỉ số nguyên (VND), không có dấu phân cách. Ví dụ: 1500000
-- Ngày: luôn dùng YYYY-MM-DD. Nếu chỉ có tháng/năm thì dùng ngày 01
-- Nếu trường nào không đọc được hoặc không có → để null
-- confidence: 0.9=rất rõ ràng, 0.7=tương đối rõ, 0.5=có thể đoán, 0.3=rất mờ
-- Không tự bịa số liệu nếu ảnh không rõ`
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
+  return [
+    (customPrompt && customPrompt.trim()) || DEFAULT_BUSINESS_PROMPT,
+    schemaPrompt,
+    OUTPUT_CONTRACT_PROMPT,
+  ].join('\n\n')
+}
 
 async function fetchImageAsBase64(imageUrl) {
   const response = await axios.get(imageUrl, {
@@ -148,10 +171,11 @@ const _failResult = {
 
 async function _doExtract(imageUrl, apiKey, model) {
   const { base64, mimeType } = await fetchImageAsBase64(imageUrl)
+  const extractionPrompt = await _buildExtractionPrompt()
   const genAI  = new GoogleGenerativeAI(apiKey)
   const mdl    = genAI.getGenerativeModel({ model })
   const result = await mdl.generateContent([
-    EXTRACTION_PROMPT,
+    extractionPrompt,
     { inlineData: { data: base64, mimeType } },
   ])
   const rawOutput  = result.response.text()

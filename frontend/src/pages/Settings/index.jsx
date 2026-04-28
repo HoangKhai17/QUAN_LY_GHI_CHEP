@@ -1304,7 +1304,9 @@ function ApiKeysTab() {
   const [settings, setSettings] = useState(null)
   const [loading,  setLoading]  = useState(true)
   const [savingModel, setSavingModel] = useState(false)
+  const [savingPrompt, setSavingPrompt] = useState(false)
   const [modelInput, setModelInput] = useState('')
+  const [promptInput, setPromptInput] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1312,6 +1314,7 @@ function ApiKeysTab() {
       const res = await adminSvc.getSettings()
       setSettings(res.data)
       setModelInput(res.data?.gemini_model?.value || '')
+      setPromptInput(res.data?.ai_extraction_prompt?.value || '')
     } catch (err) {
       notify.error('Tải cài đặt thất bại', err.response?.data?.error || 'Lỗi kết nối')
     } finally { setLoading(false) }
@@ -1349,6 +1352,27 @@ function ApiKeysTab() {
     } catch (err) {
       notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu')
     } finally { setSavingModel(false) }
+  }
+
+  async function handleSavePrompt() {
+    setSavingPrompt(true)
+    try {
+      await adminSvc.updateSetting('ai_extraction_prompt', promptInput.trim())
+      notify.success('Đã lưu', 'Prompt AI extraction đã được cập nhật')
+      load()
+    } catch (err) {
+      notify.error('Lưu thất bại', err.response?.data?.error || 'Lỗi lưu prompt')
+    } finally { setSavingPrompt(false) }
+  }
+
+  async function handleResetPrompt() {
+    try {
+      await adminSvc.clearSetting('ai_extraction_prompt')
+      notify.success('Đã khôi phục', 'AI sẽ dùng prompt mặc định của hệ thống')
+      load()
+    } catch (err) {
+      notify.error('Khôi phục thất bại', err.response?.data?.error || 'Lỗi xóa prompt')
+    }
   }
 
   async function handleToggleFallback(enabled) {
@@ -1502,6 +1526,42 @@ function ApiKeysTab() {
             >
               {savingModel ? '…' : 'Lưu'}
             </button>
+          </div>
+        </div>
+
+        {/* AI extraction prompt */}
+        <div className="apikey-field ai-prompt-field">
+          <div className="apikey-field-label">
+            Prompt nghiệp vụ AI Extraction
+            {s?.ai_extraction_prompt?.source === 'db' && <span className="apikey-source-badge">custom</span>}
+            {s?.ai_extraction_prompt?.source !== 'db' && <span className="apikey-source-badge apikey-source-badge--unset">mặc định</span>}
+          </div>
+          <div className="apikey-field-desc">
+            Nhập hướng dẫn nghiệp vụ riêng cho AI. Hệ thống sẽ tự gắn schema Loại tài liệu đang active và JSON contract bắt buộc khi gọi Gemini.
+          </div>
+          <textarea
+            className="adm-input ai-prompt-textarea"
+            value={promptInput}
+            onChange={e => setPromptInput(e.target.value)}
+            placeholder="Ví dụ: Hãy ưu tiên chứng từ tại công ty, đọc số tiền theo VND, nếu không chắc chắn thì giảm confidence..."
+            rows={8}
+          />
+          <div className="ai-prompt-actions">
+            <button
+              className="bbo-btn bbo-btn-sm bbo-btn-primary"
+              onClick={handleSavePrompt}
+              disabled={savingPrompt || !promptInput.trim()}
+            >
+              {savingPrompt ? 'Đang lưu…' : 'Lưu prompt'}
+            </button>
+            {s?.ai_extraction_prompt?.source === 'db' && (
+              <button className="bbo-btn bbo-btn-sm" onClick={handleResetPrompt}>
+                Khôi phục mặc định
+              </button>
+            )}
+          </div>
+          <div className="ai-prompt-note">
+            Không cần liệt kê field trong prompt này. Field và document type được lấy tự động từ tab Loại tài liệu.
           </div>
         </div>
       </div>

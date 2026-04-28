@@ -82,6 +82,7 @@ const ENV_MAP = {
   gemini_api_key_fallback: 'GEMINI_API_KEY_FALLBACK',
   gemini_model:            'GEMINI_MODEL',
   ai_fallback_enabled:     'AI_FALLBACK_ENABLED',
+  ai_extraction_prompt:     'AI_EXTRACTION_PROMPT',
 }
 
 /**

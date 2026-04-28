@@ -1,23 +1,34 @@
 /* ── User Guide Page ──────────────────────────────────────────────────────────── */
 
+/*
+ * Layout: TOC dùng position:fixed thay vì sticky.
+ * Lý do: .mainArea có overflow-x:hidden tạo scroll container mới,
+ * khiến position:sticky bị giam trong đó và không neo theo viewport.
+ * position:fixed kế thừa CSS var --sidebar-w từ .appShell qua DOM cascade.
+ */
 .guide-page {
-  display: flex;
-  gap: 0;
-  min-height: calc(100vh - 64px - 48px);
-  padding: 0;
+  display: block;
+  padding-left: 234px;           /* bằng đúng width TOC để content không bị đè */
+  min-height: calc(100vh - var(--header-h, 60px));
   background: var(--bg, #f5f7fa);
 }
 
 /* ── TOC Sidebar ─────────────────────────────────────────────────────────────── */
 
 .guide-toc {
+  position: fixed;
+  top: var(--header-h, 60px);
+  left: var(--sidebar-w, 260px); /* --sidebar-w kế thừa từ .appShell (260px | 64px) */
   width: 230px;
-  flex-shrink: 0;
-  padding: 28px 0 40px 24px;
-  position: sticky;
-  top: 0;
-  max-height: calc(100vh - 64px);
+  height: calc(100vh - var(--header-h, 60px));
   overflow-y: auto;
+  padding: 28px 0 40px 24px;
+  background: var(--bg, #f5f7fa);
+  z-index: 10;
+  /* chạy theo sidebar khi thu gọn */
+  transition: left 0.22s cubic-bezier(.4, 0, .2, 1);
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
 }
 
 .guide-toc-title {
@@ -78,8 +89,6 @@
 /* ── Content ─────────────────────────────────────────────────────────────────── */
 
 .guide-content {
-  flex: 1;
-  min-width: 0;
   padding: 28px 36px 60px 28px;
   max-width: 860px;
 }
@@ -87,14 +96,8 @@
 /* Sections */
 .guide-section {
   margin-bottom: 52px;
-  scroll-margin-top: 20px;
-}
-
-.guide-section-anchor {
-  display: block;
-  height: 0;
-  visibility: hidden;
-  scroll-margin-top: 24px;
+  /* bù cho header 60px + padding thêm 16px để tiêu đề không bị che */
+  scroll-margin-top: calc(var(--header-h, 60px) + 16px);
 }
 
 .guide-h1 {
@@ -391,7 +394,8 @@
 .guide-ul li strong { color: var(--ink, #1a2332); }
 
 @media (max-width: 900px) {
-  .guide-toc { display: none; }
+  .guide-toc  { display: none; }
+  .guide-page { padding-left: 0; }
   .guide-content { padding: 24px 20px 48px; }
   .guide-feature-grid { grid-template-columns: 1fr; }
 }

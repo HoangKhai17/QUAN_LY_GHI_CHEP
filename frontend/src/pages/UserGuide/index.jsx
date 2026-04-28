@@ -62,12 +62,15 @@ export default function UserGuidePage() {
   useEffect(() => {
     const observer = new IntersectionObserver(
       entries => {
-        const visible = entries.filter(e => e.isIntersecting)
-        if (visible.length > 0) {
-          setActiveId(visible[0].target.id)
-        }
+        // lấy section đầu tiên còn visible tính từ trên xuống
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+        if (visible.length > 0) setActiveId(visible[0].target.id)
       },
-      { rootMargin: '-20px 0px -70% 0px', threshold: 0 }
+      // top: loại bỏ 76px (header 60 + buffer 16) để tránh highlight sớm
+      // bottom: chỉ tính vùng trên 60% màn hình
+      { rootMargin: '-76px 0px -60% 0px', threshold: 0 }
     )
     document.querySelectorAll('.guide-section[id]').forEach(el => observer.observe(el))
     return () => observer.disconnect()

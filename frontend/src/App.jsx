@@ -10,6 +10,7 @@ import DocTypeViewPage from './pages/DocTypeView'
 import SettingsPage    from './pages/Settings'
 import ReportsPage      from './pages/Reports'
 import ActivityLogsPage from './pages/ActivityLogs'
+import UserGuidePage    from './pages/UserGuide'
 import PlaceholderPage  from './pages/Placeholder'
 
 const ANT_THEME = {
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="reports"       element={<ReportsPage />} />
           <Route path="activity-logs" element={<RoleGuard roles={['admin']}><ActivityLogsPage /></RoleGuard>} />
           <Route path="settings"      element={<RoleGuard roles={['admin','manager']}><SettingsPage /></RoleGuard>} />
+          <Route path="user-guide"    element={<UserGuidePage />} />
           <Route path="*"            element={<Navigate to="/app/dashboard" replace />} />
         </Route>
 

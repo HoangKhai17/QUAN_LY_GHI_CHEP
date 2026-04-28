@@ -33,6 +33,9 @@ function IconSettings() {
 function IconLog() {
   return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
 }
+function IconBook() {
+  return <svg className="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+}
 function IconBell() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
 }
@@ -68,6 +71,7 @@ const NAV_MAIN = [
 const NAV_ADMIN = [
   { to: '/app/activity-logs', label: 'Nhật ký hệ thống', Icon: IconLog,      roles: ['admin'] },
   { to: '/app/settings',      label: 'Cài đặt',          Icon: IconSettings, roles: ['admin','manager'] },
+  { to: '/app/user-guide',    label: 'Hướng dẫn sử dụng', Icon: IconBook,    roles: ['admin','manager','staff'] },
 ]
 
 const PAGE_TITLES = {
@@ -77,6 +81,7 @@ const PAGE_TITLES = {
   '/app/reports':      'Báo cáo',
   '/app/activity-logs':'Nhật ký hệ thống',
   '/app/settings':     'Cài đặt',
+  '/app/user-guide':   'Hướng dẫn sử dụng',
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

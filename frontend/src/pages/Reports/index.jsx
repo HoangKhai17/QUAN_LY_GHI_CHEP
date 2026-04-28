@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getReportsSummary, getReportsFinancial, getReportsStaff, getReportsHeatmap, getReportsQuality, getReportsSla, getReportsBacklog, getReportsDocTrend, getReportsAudit, archiveAuditLogs, exportReport } from '../../services/reports.service'
+import useAuthStore from '../../store/auth.store'
 import './Reports.css'
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
@@ -132,17 +133,18 @@ const PERIOD_PRESETS = [
   { key: 'custom',  label: 'Tùy chọn' },
 ]
 
+// roles: null = tất cả user đăng nhập, ['admin','manager'] = chỉ admin/manager
 const TABS = [
-  { key: 'overview',  label: 'Tổng quan',    soon: false },
-  { key: 'financial', label: 'Tài chính',    soon: false },
-  { key: 'staff',     label: 'Nhân viên',    soon: false },
-  { key: 'heatmap',   label: 'Hoạt động',    soon: false },
-  { key: 'quality',   label: 'Chất lượng',   soon: false },
-  { key: 'sla',       label: 'Tốc độ xử lý',  soon: false },
-  { key: 'backlog',   label: 'Tồn đọng',      soon: false },
-  { key: 'doc-trend', label: 'Xu hướng loại', soon: false },
-  { key: 'audit',     label: 'Audit / Tuân thủ', soon: false },
-  { key: 'export',    label: 'Xuất báo cáo',  soon: false },
+  { key: 'overview',  label: 'Tổng quan',       soon: false, roles: null },
+  { key: 'financial', label: 'Tài chính',        soon: false, roles: ['admin','manager'] },
+  { key: 'staff',     label: 'Nhân viên',        soon: false, roles: null },
+  { key: 'heatmap',   label: 'Hoạt động',        soon: false, roles: null },
+  { key: 'quality',   label: 'Chất lượng',       soon: false, roles: null },
+  { key: 'sla',       label: 'Tốc độ xử lý',    soon: false, roles: null },
+  { key: 'backlog',   label: 'Tồn đọng',         soon: false, roles: null },
+  { key: 'doc-trend', label: 'Xu hướng loại',    soon: false, roles: null },
+  { key: 'audit',     label: 'Audit / Tuân thủ', soon: false, roles: ['admin','manager'] },
+  { key: 'export',    label: 'Xuất báo cáo',     soon: false, roles: ['admin','manager'] },
 ]
 
 // ── Responsive SVG Line Chart ──────────────────────────────────────────────────
@@ -2947,7 +2949,17 @@ function ComingSoonTab({ title, desc }) {
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
-  const [activeTab, setActiveTab] = useState('overview')
+  const userRole    = useAuthStore(s => s.user?.role)
+  const visibleTabs = TABS.filter(t => !t.roles || t.roles.includes(userRole))
+
+  const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'overview')
+
+  // Reset tab if current tab becomes inaccessible after role change
+  useEffect(() => {
+    if (!visibleTabs.find(t => t.key === activeTab)) {
+      setActiveTab(visibleTabs[0]?.key ?? 'overview')
+    }
+  }, [userRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="rpt-page">
@@ -2959,7 +2971,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="rpt-tabnav">
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab.key}
             disabled={tab.soon}

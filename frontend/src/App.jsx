@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import ProtectedRoute  from './routes/ProtectedRoute'
+import RoleGuard       from './routes/RoleGuard'
 import LoginPage       from './pages/Login'
 import AppLayout       from './components/AppLayout'
 import DashboardPage   from './pages/Dashboard'
@@ -45,7 +46,7 @@ export default function App() {
           <Route path="quick-review" element={<PlaceholderPage title="Rà soát nhanh" icon="⚡" phase="Phase 6" />} />
           <Route path="search"       element={<PlaceholderPage title="Tìm kiếm"       icon="🔍" phase="Phase 7" />} />
           <Route path="reports"      element={<ReportsPage />} />
-          <Route path="settings"     element={<SettingsPage />} />
+          <Route path="settings"     element={<RoleGuard roles={['admin','manager']}><SettingsPage /></RoleGuard>} />
           <Route path="*"            element={<Navigate to="/app/dashboard" replace />} />
         </Route>
 

@@ -20,8 +20,10 @@ const router = require('express').Router()
 const db     = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
+const { makeCacheMiddleware } = require('../../middlewares/cache.middleware')
 
 router.use(requireAuth)
+router.use(makeCacheMiddleware({ ttl: 60_000 }))
 
 // ── Shared filter builder ─────────────────────────────────────────────────────
 function buildFilters(query) {

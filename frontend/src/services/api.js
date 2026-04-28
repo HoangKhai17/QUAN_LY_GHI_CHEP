@@ -1,4 +1,5 @@
 import axios from 'axios'
+import notify from '../utils/notify'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
@@ -31,12 +32,40 @@ api.interceptors.response.use(
   response => response,
   async error => {
     const originalRequest = error.config
+    const status          = error.response?.status
 
     // Bỏ qua các endpoint auth để tránh vòng lặp vô hạn
-    const isAuthEndpoint = originalRequest.url?.includes('/api/auth/')
-    const is401 = error.response?.status === 401
+    const isAuthEndpoint  = originalRequest.url?.includes('/api/auth/')
+    const isExportRequest = originalRequest.responseType === 'blob'
+    const is401 = status === 401
 
     if (!is401 || isAuthEndpoint || originalRequest._retry) {
+      // ── Hiển thị thông báo toàn cục cho các lỗi đặc thù ──────────────────
+      if (!isAuthEndpoint) {
+        if (status === 403) {
+          // Thử đọc error message từ body (kể cả blob)
+          let detail = null
+          if (isExportRequest && error.response?.data instanceof Blob) {
+            try {
+              const txt = await error.response.data.text()
+              detail = JSON.parse(txt).error
+            } catch {}
+          } else {
+            detail = error.response?.data?.error
+          }
+          notify.permissionDenied(detail)
+        } else if (status === 429) {
+          const retryAfter = error.response?.headers?.['retry-after']
+          notify.rateLimit(retryAfter)
+        } else if (status >= 500) {
+          let detail = null
+          if (!isExportRequest) detail = error.response?.data?.error
+          notify.serverError(detail)
+        } else if (!status) {
+          // Lỗi mạng / timeout — không có HTTP response
+          notify.networkError()
+        }
+      }
       return Promise.reject(error)
     }
 

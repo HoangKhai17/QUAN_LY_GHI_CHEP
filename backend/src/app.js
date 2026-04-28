@@ -1,4 +1,24 @@
 require('./config/env')
+
+// ── Sentry — phải init trước tất cả require khác ────────────────
+const Sentry = require('@sentry/node')
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 1.0,   // 100% transactions — giảm xuống 0.1 khi production traffic lớn
+    sendDefaultPii: true,    // Gửi IP + user context để debug dễ hơn
+    beforeSend(event) {
+      // Xóa token nhạy cảm trước khi gửi lên Sentry cloud
+      if (event.request?.headers) {
+        delete event.request.headers['authorization']
+        delete event.request.headers['cookie']
+      }
+      return event
+    },
+  })
+}
+
 const express = require('express')
 const http = require('http')
 const cors = require('cors')
@@ -109,6 +129,10 @@ app.use('/webhook',       require('./modules/webhook/webhook.router'))
 
 // ── Error handlers ───────────────────────────────────────────────
 app.use(notFound)
+// Sentry phải capture trước errorHandler để có đủ context request
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app)
+}
 app.use(errorHandler)
 
 // ── Start ────────────────────────────────────────────────────────

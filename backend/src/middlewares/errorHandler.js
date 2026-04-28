@@ -1,3 +1,4 @@
+const Sentry = require('@sentry/node')
 const logger = require('../config/logger')
 const env = require('../config/env')
 
@@ -12,6 +13,13 @@ function errorHandler(err, req, res, next) {
     method: req.method,
     stack: env.nodeEnv !== 'production' ? err.stack : undefined,
   })
+
+  // Chỉ report lỗi 5xx lên Sentry (4xx là lỗi client, không phải bug)
+  if (status >= 500 && process.env.SENTRY_DSN) {
+    Sentry.captureException(err, {
+      extra: { path: req.path, method: req.method, status },
+    })
+  }
 
   res.status(status).json({
     error: message,

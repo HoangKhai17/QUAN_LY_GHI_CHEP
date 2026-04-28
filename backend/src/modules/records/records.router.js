@@ -3,6 +3,7 @@ const path       = require('path')
 const db         = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
+const { requireUUID } = require('../../middlewares/validators')
 const connectors = require('../../connectors')
 const logger     = require('../../config/logger')
 const { logAudit }   = require('../../services/audit.service')
@@ -544,7 +545,7 @@ router.get('/aggregations', async (req, res) => {
 })
 
 // ── GET /api/records/:id ──────────────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireUUID('id'), async (req, res) => {
   const { rows } = await db.query(
     `SELECT r.*,
             u.username   AS sender_username,
@@ -582,7 +583,7 @@ router.get('/:id', async (req, res) => {
 })
 
 // ── PATCH /api/records/:id/status ─────────────────────────────────────────────
-router.patch('/:id/status', requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/status', requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const { status, flag_reason } = req.body || {}
 
   if (!status || !['reviewed', 'approved', 'flagged'].includes(status)) {
@@ -660,7 +661,7 @@ router.patch('/:id/status', requireRole('admin', 'manager'), async (req, res) =>
 
 // ── PATCH /api/records/:id ────────────────────────────────────────────────────
 // Accepts: note, category_id, document_type_id, field_values (object)
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const { note, category_id, document_type_id, field_values } = req.body || {}
 
   const hasScalarChange = note !== undefined || category_id !== undefined || document_type_id !== undefined
@@ -755,7 +756,7 @@ router.patch('/:id', async (req, res) => {
 })
 
 // ── DELETE /api/records/:id ───────────────────────────────────────────────────
-router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
+router.delete('/:id', requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const { rowCount } = await db.query(
     `UPDATE records SET status = 'deleted', updated_at = NOW()
      WHERE id = $1 AND status != 'deleted'`,

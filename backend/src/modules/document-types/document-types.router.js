@@ -16,6 +16,7 @@ const router     = require('express').Router()
 const db         = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
+const { requireUUID } = require('../../middlewares/validators')
 const docTypeSvc = require('../../services/document-types.service')
 
 router.use(requireAuth)
@@ -33,14 +34,14 @@ router.get('/', async (req, res) => {
 })
 
 // ── GET /api/document-types/:id ───────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireUUID('id'), async (req, res) => {
   const type = await docTypeSvc.getById(req.params.id)
   if (!type) return res.status(404).json({ error: 'Document type not found' })
   res.json(type)
 })
 
 // ── GET /api/document-types/:id/fields ───────────────────────────────────────
-router.get('/:id/fields', async (req, res) => {
+router.get('/:id/fields', requireUUID('id'), async (req, res) => {
   const type = await docTypeSvc.getById(req.params.id)
   if (!type) return res.status(404).json({ error: 'Document type not found' })
   res.json({ data: type.fields })
@@ -72,7 +73,7 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
 })
 
 // ── PATCH /api/document-types/:id ────────────────────────────────────────────
-router.patch('/:id', requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id', requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const { name, description, is_active, default_category_id } = req.body || {}
 
   const setClauses = []
@@ -97,7 +98,7 @@ router.patch('/:id', requireRole('admin', 'manager'), async (req, res) => {
 })
 
 // ── POST /api/document-types/:id/fields ──────────────────────────────────────
-router.post('/:id/fields', requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/fields', requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const {
     field_key, label, data_type,
     unit, is_required = false, is_filterable = false,
@@ -146,7 +147,7 @@ router.post('/:id/fields', requireRole('admin', 'manager'), async (req, res) => 
 })
 
 // ── PATCH /api/document-types/:id/fields/:fieldId ────────────────────────────
-router.patch('/:id/fields/:fieldId', requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/fields/:fieldId', requireUUID('id', 'fieldId'), requireRole('admin', 'manager'), async (req, res) => {
   const { label, data_type, unit, is_required, is_filterable, is_reportable, aggregation_type, display_order } = req.body || {}
 
   const setClauses = []
@@ -199,7 +200,7 @@ router.patch('/:id/fields/:fieldId', requireRole('admin', 'manager'), async (req
 })
 
 // ── DELETE /api/document-types/:id/fields/:fieldId ───────────────────────────
-router.delete('/:id/fields/:fieldId', requireRole('admin'), async (req, res) => {
+router.delete('/:id/fields/:fieldId', requireUUID('id', 'fieldId'), requireRole('admin'), async (req, res) => {
   const { rowCount } = await db.query(
     `DELETE FROM document_type_fields WHERE id = $1 AND document_type_id = $2`,
     [req.params.fieldId, req.params.id]

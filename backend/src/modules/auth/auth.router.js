@@ -1,16 +1,27 @@
 const router = require('express').Router()
+const rateLimit = require('express-rate-limit')
 const db = require('../../config/db')
 const authService = require('../../services/auth.service')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const logger = require('../../config/logger')
 const { logAudit } = require('../../services/audit.service')
 
+// 10 attempts per 15 min per IP — brute-force protection
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Quá nhiều lần thử đăng nhập. Vui lòng thử lại sau 15 phút.' },
+  skipSuccessfulRequests: true,
+})
+
 function deviceHint(req) {
   return req.headers['user-agent']?.slice(0, 200) || null
 }
 
 // POST /api/auth/login
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimiter, async (req, res, next) => {
   const { username, password } = req.body || {}
   try {
     const result = await authService.login(username, password, deviceHint(req))

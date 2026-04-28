@@ -103,9 +103,9 @@ async function login(username, password, deviceHint = null) {
     if (attempts >= MAX_LOGIN_ATTEMPTS) {
       await db.query(
         `UPDATE users SET login_attempts = 0,
-          locked_until = NOW() + INTERVAL '${LOCKOUT_MINUTES} minutes'
+          locked_until = NOW() + ($2 * INTERVAL '1 minute')
          WHERE id = $1`,
-        [user.id]
+        [user.id, LOCKOUT_MINUTES]
       )
       logger.warn('auth.login.locked', { userId: user.id })
     } else {

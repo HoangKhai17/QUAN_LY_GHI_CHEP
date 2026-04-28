@@ -11,6 +11,7 @@ const db = require('../../config/db')
 const authService = require('../../services/auth.service')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
+const { requireUUID } = require('../../middlewares/validators')
 const logger = require('../../config/logger')
 const { logAudit } = require('../../services/audit.service')
 
@@ -105,7 +106,7 @@ router.get('/', requireAuth, requireRole('admin', 'manager'), async (req, res) =
 })
 
 // GET /api/users/:id — admin/manager HOẶC chính user đó
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requireAuth, requireUUID('id'), async (req, res) => {
   const isSelf = req.user.sub === req.params.id
   const isPrivileged = ['admin', 'manager'].includes(req.user.role)
 
@@ -124,7 +125,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 })
 
 // PATCH /api/users/:id/activate — chỉ admin
-router.patch('/:id/activate', requireAuth, requireRole('admin'), async (req, res) => {
+router.patch('/:id/activate', requireAuth, requireUUID('id'), requireRole('admin'), async (req, res) => {
   const { is_active } = req.body || {}
   if (typeof is_active !== 'boolean') {
     return res.status(400).json({ error: 'is_active must be boolean' })
@@ -149,7 +150,7 @@ router.patch('/:id/activate', requireAuth, requireRole('admin'), async (req, res
 })
 
 // POST /api/users/:id/reset-password — chỉ admin
-router.post('/:id/reset-password', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/reset-password', requireAuth, requireUUID('id'), requireRole('admin'), async (req, res) => {
   const tempPw = authService.generateTempPassword()
   const hash = await authService.hashPassword(tempPw)
 
@@ -170,7 +171,7 @@ router.post('/:id/reset-password', requireAuth, requireRole('admin'), async (req
 })
 
 // PATCH /api/users/:id/role — chỉ admin
-router.patch('/:id/role', requireAuth, requireRole('admin'), async (req, res) => {
+router.patch('/:id/role', requireAuth, requireUUID('id'), requireRole('admin'), async (req, res) => {
   const { role } = req.body || {}
   if (!VALID_ROLES.includes(role)) {
     return res.status(400).json({ error: `Invalid role. Valid: ${VALID_ROLES.join(', ')}` })

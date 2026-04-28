@@ -4,11 +4,11 @@ const env = require('../config/env')
 
 function errorHandler(err, req, res, next) {
   const status = err.status || err.statusCode || 500
-  const message = err.message || 'Internal server error'
+  const internalMessage = err.message || 'Internal server error'
 
   logger.error('request.error', {
     status,
-    message,
+    message: internalMessage,
     path: req.path,
     method: req.method,
     stack: env.nodeEnv !== 'production' ? err.stack : undefined,
@@ -21,8 +21,13 @@ function errorHandler(err, req, res, next) {
     })
   }
 
+  // 5xx in production: return generic message to avoid leaking DB schema / stack details
+  const clientMessage = (status >= 500 && env.nodeEnv === 'production')
+    ? 'Internal server error'
+    : internalMessage
+
   res.status(status).json({
-    error: message,
+    error: clientMessage,
     ...(env.nodeEnv !== 'production' && { stack: err.stack }),
   })
 }

@@ -2,6 +2,7 @@ const router = require('express').Router()
 const db = require('../../config/db')
 const { requireAuth } = require('../../middlewares/auth.middleware')
 const { requireRole } = require('../../middlewares/rbac.middleware')
+const { requireUUID } = require('../../middlewares/validators')
 
 // GET /api/categories — tất cả user có thể xem (để chọn khi edit record)
 router.get('/', requireAuth, async (req, res) => {
@@ -37,7 +38,7 @@ router.post('/', requireAuth, requireRole('admin', 'manager'), async (req, res) 
 })
 
 // PUT /api/categories/:id — admin/manager
-router.put('/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+router.put('/:id', requireAuth, requireUUID('id'), requireRole('admin', 'manager'), async (req, res) => {
   const { name, description, color, is_active } = req.body || {}
 
   const setClauses = []

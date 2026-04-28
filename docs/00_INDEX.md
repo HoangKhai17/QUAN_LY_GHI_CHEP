@@ -16,6 +16,7 @@
 | 07 | [📊 Phân tích cạnh tranh](./07_COMPETITIVE_ANALYSIS.md) | So sánh thị trường, điểm cần cải thiện, roadmap |
 | 08 | [🏗️ Build Plan chi tiết](./08_BUILD_PLAN.md) | 9 phases, step-by-step. Phase 0–5 ✅ Done. Phase 6–8 planned. |
 | 09 | [⚡ Performance & Optimization Checklist](./09_PERFORMANCE_CHECKLIST.md) | Checklist DB, query, API, frontend — dùng khi build tính năng mới hoặc chẩn đoán chậm |
+| 10 | [🔒 Security Audit & Penetration Test Plan](./10_SECURITY_AUDIT_PENTEST.md) | 17 issues (2 Critical/5 High/6 Medium/4 Low), attack scripts, fix tracking table |
 
 ---
 

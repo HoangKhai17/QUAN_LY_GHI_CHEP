@@ -155,6 +155,229 @@ Khởi động lại backend — webhook tự đăng ký khi server start.
 
 ---
 
+## Deploy lên VPS Linux (Production)
+
+Kiến trúc: **Frontend tĩnh (Nginx) + Backend (PM2) + PostgreSQL** — cùng 1 VPS, không cần Docker trên server.
+
+```
+Internet → Nginx :80/:443
+              ├── /          → serve frontend/dist (React build tĩnh)
+              ├── /api/      → proxy → Node.js :3000
+              └── /socket.io → proxy WebSocket → Node.js :3000
+```
+
+### Yêu cầu VPS
+
+| | Tối thiểu | Khuyến nghị |
+|-|-----------|-------------|
+| OS | Ubuntu 22.04 LTS | Ubuntu 24.04 LTS |
+| RAM | 1 GB | 2 GB+ |
+| Disk | 10 GB | 20 GB+ |
+
+---
+
+### Bước 1 — Chuẩn bị VPS
+
+```bash
+apt update && apt upgrade -y
+apt install -y curl git build-essential ufw
+
+# Firewall
+ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw enable
+```
+
+---
+
+### Bước 2 — Cài PostgreSQL
+
+```bash
+apt install -y postgresql postgresql-contrib
+systemctl enable --now postgresql
+
+sudo -u postgres psql <<'SQL'
+CREATE USER bbotech WITH PASSWORD 'your_strong_password';
+CREATE DATABASE quan_ly_ghi_chep OWNER bbotech;
+GRANT ALL PRIVILEGES ON DATABASE quan_ly_ghi_chep TO bbotech;
+SQL
+```
+
+---
+
+### Bước 3 — Cài Node.js 20 + PM2
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+npm install -g pm2
+```
+
+---
+
+### Bước 4 — Upload code & cấu hình Backend
+
+```bash
+mkdir -p /var/www/bbotech
+cd /var/www/bbotech
+
+# Upload code (chọn 1 trong 2 cách)
+git clone <repo-url> .
+# hoặc: scp -r /local/path root@<vps-ip>:/var/www/bbotech
+
+cd backend
+npm install --production
+cp .env.example .env
+nano .env   # điền đầy đủ biến môi trường cho production
+```
+
+Các biến cần thay đổi so với local:
+
+```env
+NODE_ENV=production
+FRONTEND_URL=https://your-domain.com
+DB_HOST=localhost
+DB_PORT=5432          # PostgreSQL trực tiếp, không qua Docker
+DB_PASSWORD=your_strong_password
+WEBHOOK_BASE_URL=https://your-domain.com
+```
+
+```bash
+npm run migrate
+npm run create-admin -- --password "Admin@2026!"
+```
+
+---
+
+### Bước 5 — Chạy Backend với PM2
+
+```bash
+cd /var/www/bbotech/backend
+pm2 start src/app.js --name bbotech-api
+
+# Tự restart khi VPS reboot
+pm2 startup systemd   # chạy lệnh mà PM2 in ra
+pm2 save
+
+pm2 logs bbotech-api  # xem log
+```
+
+---
+
+### Bước 6 — Build Frontend
+
+```bash
+cd /var/www/bbotech/frontend
+npm install
+
+# Trỏ API về domain production
+echo "VITE_API_BASE_URL=https://your-domain.com" > .env.production
+
+npm run build
+# Output tĩnh: frontend/dist/
+```
+
+> Mỗi lần cập nhật code frontend: chạy lại `npm run build`, Nginx phục vụ file mới ngay, không cần restart.
+
+---
+
+### Bước 7 — Nginx reverse proxy
+
+```bash
+apt install -y nginx
+nano /etc/nginx/sites-available/bbotech
+```
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com www.your-domain.com;
+
+    # React SPA
+    root /var/www/bbotech/frontend/dist;
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # REST API
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # Socket.io (realtime)
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Swagger docs
+    location /api-docs {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+    }
+
+    client_max_body_size 35M;
+}
+```
+
+```bash
+ln -s /etc/nginx/sites-available/bbotech /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx && systemctl enable nginx
+```
+
+---
+
+### Bước 8 — SSL miễn phí (Let's Encrypt)
+
+> Domain phải trỏ về IP VPS trước khi chạy bước này.
+
+```bash
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d your-domain.com -d www.your-domain.com
+certbot renew --dry-run   # kiểm tra tự gia hạn
+```
+
+Sau đó cập nhật `.env` backend và restart:
+```bash
+pm2 restart bbotech-api
+```
+
+---
+
+### Bước 9 — Webhook Telegram / Zalo
+
+Đăng ký webhook sau khi có HTTPS: vào **Settings → Telegram Bot** trên Dashboard, nhập bot token — hệ thống tự gọi Telegram API để đăng ký URL.
+
+---
+
+### Lệnh vận hành thường dùng
+
+```bash
+# Xem trạng thái backend
+pm2 status && pm2 logs bbotech-api --lines 50
+
+# Cập nhật backend
+cd /var/www/bbotech/backend && git pull && npm install --production && pm2 restart bbotech-api
+
+# Cập nhật frontend
+cd /var/www/bbotech/frontend && git pull && npm install && npm run build
+
+# Kiểm tra Nginx
+nginx -t && systemctl reload nginx
+```
+
+---
+
 ## Biến môi trường (`backend/.env`)
 
 | Biến | Bắt buộc | Mô tả |

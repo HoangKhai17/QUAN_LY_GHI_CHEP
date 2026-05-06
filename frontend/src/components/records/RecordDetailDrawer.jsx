@@ -431,8 +431,8 @@ export default function RecordDetailDrawer({
                               {i < record.timeline.length - 1 && <div className="rdd-timeline__line" />}
                             </div>
                             <div className="rdd-timeline__content">
-                              <div className="rdd-timeline__text" dangerouslySetInnerHTML={{ __html: item.text }} />
-                              <div className="rdd-timeline__time">{item.time}</div>
+                              <div className="rdd-timeline__text">{item.text}</div>
+                              <div className="rdd-timeline__time">{fmtDatetime(item.time)}</div>
                             </div>
                           </div>
                         ))}

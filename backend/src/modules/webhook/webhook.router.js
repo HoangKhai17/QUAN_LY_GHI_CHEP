@@ -2,6 +2,8 @@ const router = require('express').Router()
 const { getConnector, listPlatforms } = require('../../connectors')
 const processor = require('./message.processor')
 const logger = require('../../config/logger')
+const { requireAuth } = require('../../middlewares/auth.middleware')
+const { requireRole } = require('../../middlewares/rbac.middleware')
 
 /**
  * POST /webhook/:platform
@@ -70,7 +72,7 @@ router.post('/:platform', async (req, res) => {
  * GET /webhook/platforms
  * Danh sách platform đang được hỗ trợ (dùng cho admin UI)
  */
-router.get('/platforms', (req, res) => {
+router.get('/platforms', requireAuth, requireRole('admin', 'manager'), (req, res) => {
   res.json({ platforms: listPlatforms() })
 })
 

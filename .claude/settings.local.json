@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(npm audit *)",
+      "Bash(xargs grep -l \"must_change_pw\\\\|change-password\\\\|changePassword\\\\|ChangePassword\")"
+    ]
+  }
+}

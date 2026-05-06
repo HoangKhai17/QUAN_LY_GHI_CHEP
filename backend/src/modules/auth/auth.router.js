@@ -23,6 +23,14 @@ function deviceHint(req) {
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req, res, next) => {
   const { username, password } = req.body || {}
+
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'username and password must be strings' })
+  }
+  if (username.length > 200 || password.length > 1000) {
+    return res.status(400).json({ error: 'Invalid credentials' })
+  }
+
   try {
     const result = await authService.login(username, password, deviceHint(req))
     logger.info('auth.login.success', { username, ip: req.ip })

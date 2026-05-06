@@ -568,18 +568,67 @@ router.get('/:id', requireUUID('id'), async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: 'Record not found' })
   const record = rows[0]
 
-  // Attach field schema + values when a document type is assigned
-  let fieldDefinitions = []
-  let fieldValues      = {}
+  // Parallel: field schema+values + timeline sources
+  const [editResult, auditResult, fieldDefinitions, fieldValues] = await Promise.all([
+    db.query(
+      `SELECT el.field_name, el.old_value, el.new_value, el.edited_at, u.name AS editor_name
+       FROM edit_logs el
+       LEFT JOIN users u ON el.edited_by = u.id
+       WHERE el.record_id = $1
+       ORDER BY el.edited_at DESC`,
+      [record.id]
+    ),
+    db.query(
+      `SELECT al.action, al.new_data, al.created_at, u.name AS actor_name
+       FROM audit_logs al
+       LEFT JOIN users u ON al.user_id = u.id
+       WHERE al.resource = 'record' AND al.resource_id = $1
+         AND al.action IN ('create', 'review', 'approve', 'flag')
+       ORDER BY al.created_at DESC`,
+      [record.id]
+    ),
+    record.document_type_id ? docTypeSvc.getFields(record.document_type_id) : Promise.resolve([]),
+    record.document_type_id ? rfvService.getForRecord(record.id)           : Promise.resolve({}),
+  ])
 
-  if (record.document_type_id) {
-    ;[fieldDefinitions, fieldValues] = await Promise.all([
-      docTypeSvc.getFields(record.document_type_id),
-      rfvService.getForRecord(record.id),
-    ])
+  // Build timeline
+  const SCALAR_LABELS = { note: 'Ghi chú', category_id: 'Danh mục', document_type_id: 'Loại tài liệu' }
+  const fieldLabelMap = Object.fromEntries(fieldDefinitions.map(f => [`field:${f.field_key}`, f.label]))
+
+  const timeline = []
+
+  for (const row of editResult.rows) {
+    const label = SCALAR_LABELS[row.field_name] ?? fieldLabelMap[row.field_name] ?? row.field_name.replace(/^field:/, '')
+    const actor = row.editor_name || 'Hệ thống'
+    let text
+    if (row.field_name.startsWith('field:')) {
+      text = `${actor} cập nhật "${label}": ${row.new_value ?? '(trống)'}`
+    } else if (row.old_value && row.new_value) {
+      text = `${actor} sửa "${label}": "${row.old_value}" → "${row.new_value}"`
+    } else if (row.new_value) {
+      text = `${actor} đặt "${label}": "${row.new_value}"`
+    } else {
+      text = `${actor} xóa "${label}"`
+    }
+    timeline.push({ text, time: row.edited_at, type: 'edit' })
   }
 
-  res.json({ ...record, field_definitions: fieldDefinitions, field_values: fieldValues })
+  for (const row of auditResult.rows) {
+    const actor = row.actor_name || 'Hệ thống'
+    let text
+    if (row.action === 'create')  text = 'Ghi chép được tạo'
+    else if (row.action === 'review')  text = `${actor} đã xét duyệt`
+    else if (row.action === 'approve') text = `${actor} đã phê duyệt`
+    else if (row.action === 'flag') {
+      const reason = row.new_data?.flag_reason
+      text = `${actor} đã gắn cờ${reason ? `: ${reason}` : ''}`
+    } else continue
+    timeline.push({ text, time: row.created_at, type: row.action })
+  }
+
+  timeline.sort((a, b) => new Date(b.time) - new Date(a.time))
+
+  res.json({ ...record, field_definitions: fieldDefinitions, field_values: fieldValues, timeline })
 })
 
 // ── PATCH /api/records/:id/status ─────────────────────────────────────────────

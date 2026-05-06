@@ -52,6 +52,7 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
 
   servers: [
     { url: 'http://localhost:3000', description: 'Local dev' },
+    { url: 'https://your-domain.com', description: 'Production VPS (thay bằng domain thật)' },
   ],
 
   components: {
@@ -179,6 +180,18 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
                   transfer_date: { label: 'Ngày chuyển khoản', data_type: 'date', value: '2026-04-23', source: 'ai' },
                 },
               },
+              timeline: {
+                type: 'array',
+                description: 'Lịch sử thao tác — kết hợp edit_logs và audit_logs, sắp xếp mới nhất trước',
+                items: {
+                  type: 'object',
+                  properties: {
+                    text: { type: 'string', example: 'Nguyễn Văn A cập nhật "Số tiền": 1500000' },
+                    time: { type: 'string', format: 'date-time' },
+                    type: { type: 'string', enum: ['create', 'review', 'approve', 'flag', 'edit'], example: 'edit' },
+                  },
+                },
+              },
             },
           },
         ],
@@ -277,6 +290,8 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
     { name: 'Search',        description: 'Tìm kiếm toàn văn (full-text search)' },
     { name: 'Notifications', description: 'Thông báo realtime — summary badge, Socket.io events' },
     { name: 'Settings',      description: 'Cài đặt hệ thống — lưu trong system_settings, secret fields mã hoá AES-256-GCM' },
+    { name: 'Webhook',       description: 'Quản lý webhook nhận dữ liệu từ Telegram / Zalo' },
+    { name: 'Backup',        description: 'Sao lưu & khôi phục cơ sở dữ liệu (admin only)' },
   ],
 
   // ── Paths ─────────────────────────────────────────────────────────────────────
@@ -531,6 +546,55 @@ Nhận ảnh chứng từ từ Telegram → AI trích xuất nội dung → Mana
           200: { description: 'Thông tin user', content: { 'application/json': { schema: { $ref: '#/components/schemas/UserPublic' } } } },
           403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           404: { description: 'User không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+
+      patch: {
+        tags: ['Users'],
+        summary: 'Cập nhật thông tin user (username / tên hiển thị)',
+        description: `Quyền: **admin only**. Dùng để sửa username hoặc tên hiển thị — đặc biệt hữu ích với tài khoản được auto-tạo từ Telegram/Zalo (thường không có username dễ đọc).
+
+Chỉ truyền các field cần thay đổi. Validation:
+- \`username\`: 3–50 ký tự, chỉ chữ thường/số/dấu chấm/gạch ngang/gạch dưới (\`[a-z0-9._-]+\`)
+- \`name\`: không được để trống`,
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  username: { type: 'string', minLength: 3, maxLength: 50, example: 'nguyen.van.a', description: 'Chỉ chữ thường, số, . - _' },
+                  name:     { type: 'string', example: 'Nguyễn Văn A', description: 'Tên hiển thị' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Cập nhật thành công',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id:       { type: 'string', format: 'uuid' },
+                    username: { type: 'string', example: 'nguyen.van.a' },
+                    name:     { type: 'string', example: 'Nguyễn Văn A' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Không có field / username không hợp lệ / name rỗng', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền (cần admin)', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'User không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          409: { description: 'Username đã tồn tại', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
     },
@@ -863,8 +927,14 @@ Hỗ trợ cùng các query param filter như \`GET /api/records\` (trừ \`stat
 
       patch: {
         tags: ['Records'],
-        summary: 'Sửa ghi chú / danh mục',
-        description: 'Tất cả user đã login có thể sửa. Mỗi thay đổi được ghi vào `edit_logs`.',
+        summary: 'Sửa ghi chú / danh mục / loại tài liệu / dữ liệu trích xuất',
+        description: `Quyền: **admin** hoặc **manager**. Mỗi thay đổi được ghi vào \`edit_logs\` và xuất hiện trong \`timeline\` của record.
+
+**Các field có thể sửa:**
+- \`note\` — ghi chú nội bộ
+- \`category_id\` — phân loại danh mục
+- \`document_type_id\` — thay đổi loại tài liệu (sẽ clear field values cũ không thuộc type mới)
+- \`field_values\` — chỉnh sửa từng trường trích xuất; yêu cầu record phải có \`document_type_id\``,
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
@@ -2047,6 +2117,150 @@ Dữ liệu **không bị xóa** — vẫn truy xuất được từ bảng arch
           },
           400: { description: 'type không hợp lệ', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // WEBHOOK
+    // ════════════════════════════════════════════════════════════════════════════
+
+    '/api/webhook/platforms': {
+      get: {
+        tags: ['Webhook'],
+        summary: 'Danh sách platform webhook đang được kích hoạt',
+        description: 'Quyền: **admin** hoặc **manager**. Trả về danh sách platform có webhook đã cấu hình (telegram, zalo...).',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Danh sách platform active',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    platforms: { type: 'array', items: { type: 'string' }, example: ['telegram', 'zalo'] },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Chưa đăng nhập', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // BACKUP
+    // ════════════════════════════════════════════════════════════════════════════
+
+    '/api/backup': {
+      get: {
+        tags: ['Backup'],
+        summary: 'Danh sách file backup',
+        description: 'Quyền: **admin only**. Liệt kê các file backup đang có, sắp xếp mới nhất trước.',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Danh sách backup',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          filename:   { type: 'string', example: 'backup_2026-05-06_03-00-00.sql.gz' },
+                          size_bytes: { type: 'integer', example: 204800 },
+                          size_label: { type: 'string', example: '200 KB' },
+                          created_at: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+
+      post: {
+        tags: ['Backup'],
+        summary: 'Tạo backup ngay lập tức',
+        description: 'Quyền: **admin only**. Chạy `pg_dump`, nén gz, lưu vào thư mục backup server. Trả về thông tin file vừa tạo.',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Backup tạo thành công',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'object',
+                      properties: {
+                        filename:   { type: 'string', example: 'backup_2026-05-06_10-30-00.sql.gz' },
+                        size_bytes: { type: 'integer', example: 204800 },
+                        size_label: { type: 'string', example: '200 KB' },
+                        created_at: { type: 'string', format: 'date-time' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: { description: 'pg_dump thất bại', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/backup/{filename}/download': {
+      get: {
+        tags: ['Backup'],
+        summary: 'Tải file backup',
+        description: 'Quyền: **admin only**. Stream file `.sql.gz` về client.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'filename', in: 'path', required: true, schema: { type: 'string' }, example: 'backup_2026-05-06_10-30-00.sql.gz' },
+        ],
+        responses: {
+          200: {
+            description: 'File backup',
+            headers: {
+              'Content-Disposition': { schema: { type: 'string', example: 'attachment; filename="backup_2026-05-06_10-30-00.sql.gz"' } },
+            },
+            content: {
+              'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'File không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        },
+      },
+    },
+
+    '/api/backup/{filename}': {
+      delete: {
+        tags: ['Backup'],
+        summary: 'Xóa file backup',
+        description: 'Quyền: **admin only**. Xóa vĩnh viễn file backup khỏi server.',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          { name: 'filename', in: 'path', required: true, schema: { type: 'string' }, example: 'backup_2026-05-06_10-30-00.sql.gz' },
+        ],
+        responses: {
+          200: { description: 'Đã xóa', content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } } },
+          403: { description: 'Không đủ quyền', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'File không tìm thấy', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
         },
       },
     },

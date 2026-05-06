@@ -3,7 +3,7 @@ import { Drawer, message, Modal } from 'antd'
 import StatusBadge from './StatusBadge'
 import PlatformBadge from './PlatformBadge'
 import FlagDialog from './FlagDialog'
-import { updateRecordStatus, updateRecord, deleteRecord, getCategories } from '../../services/record.service'
+import { updateRecordStatus, updateRecord, deleteRecord, getCategories, getDocumentTypes } from '../../services/record.service'
 import './RecordDetailDrawer.css'
 
 function fmtDatetime(iso) {
@@ -74,18 +74,28 @@ export default function RecordDetailDrawer({
   const [categories,  setCategories]  = useState([])
   const [catId,       setCatId]       = useState('')
   const [imgTab,      setImgTab]      = useState(0)
+  const [docTypes,     setDocTypes]     = useState([])
+  const [docTypeId,    setDocTypeId]    = useState('')
+  const [editingField, setEditingField] = useState(null)
+  const [editingValue, setEditingValue] = useState('')
+  const [savingField,  setSavingField]  = useState(false)
 
   useEffect(() => {
     if (record) {
       setNote(record.note ?? '')
       setNoteChanged(false)
       setCatId(record.category_id ?? '')
+      setDocTypeId(record.document_type_id ?? '')
+      setEditingField(null)
     }
   }, [record?.id])
 
   useEffect(() => {
     getCategories().then(data => {
       setCategories(Array.isArray(data) ? data : (data?.data ?? []))
+    }).catch(() => {})
+    getDocumentTypes().then(data => {
+      setDocTypes(Array.isArray(data) ? data : (data?.data ?? []))
     }).catch(() => {})
   }, [])
 
@@ -120,6 +130,49 @@ export default function RecordDetailDrawer({
       message.error('Gắn cờ thất bại')
     } finally {
       setFlagLoading(false)
+    }
+  }
+
+  async function handleDocTypeChange(e) {
+    const val = e.target.value
+    setDocTypeId(val)
+    try {
+      await updateRecord(record.id, { document_type_id: val || null })
+      onStatusChange?.(record.id, { document_type_id: val })
+      message.success('Đã cập nhật loại tài liệu')
+      onRefreshRecord?.()
+    } catch {
+      message.error('Cập nhật loại tài liệu thất bại')
+      setDocTypeId(record.document_type_id ?? '')
+    }
+  }
+
+  function handleFieldEdit(f) {
+    setEditingValue(f.value == null ? '' : String(f.value))
+    setEditingField(f.field_key)
+  }
+
+  async function handleFieldSave(f) {
+    setSavingField(true)
+    try {
+      let coerced
+      if (f.data_type === 'boolean') {
+        coerced = editingValue === 'true' ? true : editingValue === 'false' ? false : null
+      } else if (f.data_type === 'number') {
+        coerced = editingValue === '' ? null : parseFloat(editingValue)
+      } else if (f.data_type === 'money') {
+        coerced = editingValue === '' ? null : parseInt(editingValue, 10)
+      } else {
+        coerced = editingValue === '' ? null : editingValue
+      }
+      await updateRecord(record.id, { field_values: { [f.field_key]: coerced } })
+      message.success(`Đã cập nhật "${f.label || f.field_key}"`)
+      setEditingField(null)
+      onRefreshRecord?.()
+    } catch (err) {
+      message.error(err.response?.data?.error || 'Cập nhật thất bại')
+    } finally {
+      setSavingField(false)
     }
   }
 
@@ -316,13 +369,34 @@ export default function RecordDetailDrawer({
                       {fieldEntries.map(f => (
                         <div key={f.field_key} className="rdd-field-row">
                           <div className="rdd-field-label">{f.label || f.field_key}</div>
-                          <div className="rdd-field-value">
-                            <span className={`rdd-field-val${f.data_type === 'money' ? ' rdd-field-val--money' : ''}`}>
-                              {formatFieldValue(f.data_type, f.value)}
-                            </span>
-                            {f.unit && <span className="rdd-field-unit">{f.unit}</span>}
-                            {f.source === 'human' && <span className="rdd-field-src rdd-field-src--human">chỉnh tay</span>}
-                          </div>
+                          {editingField === f.field_key ? (
+                            <div className="rdd-field-edit-row">
+                              <FieldInput f={f} value={editingValue} onChange={setEditingValue} />
+                              <button
+                                className="bbo-btn bbo-btn-sm bbo-btn-primary"
+                                onClick={() => handleFieldSave(f)}
+                                disabled={savingField}
+                              >{savingField ? '…' : '✓'}</button>
+                              <button
+                                className="bbo-btn bbo-btn-sm"
+                                onClick={() => setEditingField(null)}
+                                disabled={savingField}
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <div className="rdd-field-value">
+                              <span className={`rdd-field-val${f.data_type === 'money' ? ' rdd-field-val--money' : ''}`}>
+                                {formatFieldValue(f.data_type, f.value)}
+                              </span>
+                              {f.unit && <span className="rdd-field-unit">{f.unit}</span>}
+                              {f.source === 'human' && <span className="rdd-field-src rdd-field-src--human">chỉnh tay</span>}
+                              <button
+                                className="rdd-field-edit-btn"
+                                onClick={() => handleFieldEdit(f)}
+                                title="Chỉnh sửa"
+                              >✎</button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -341,11 +415,18 @@ export default function RecordDetailDrawer({
                     <MetaRow label="Mã record">
                       <code className="rdd-code">{record.code ?? record.id?.slice(-6)?.toUpperCase()}</code>
                     </MetaRow>
-                    {record.document_type_name && (
-                      <MetaRow label="Loại tài liệu">
-                        <span className="rdd-doctype-badge">{record.document_type_name}</span>
-                      </MetaRow>
-                    )}
+                    <MetaRow label="Loại tài liệu">
+                      <select
+                        className="rdd-select"
+                        value={docTypeId}
+                        onChange={handleDocTypeChange}
+                      >
+                        <option value="">— Chưa xác định —</option>
+                        {docTypes.map(dt => (
+                          <option key={dt.id} value={dt.id}>{dt.name}</option>
+                        ))}
+                      </select>
+                    </MetaRow>
                     <MetaRow label="Phân loại">
                       <select
                         className="rdd-select"
@@ -454,6 +535,26 @@ export default function RecordDetailDrawer({
       />
     </>
   )
+}
+
+function FieldInput({ f, value, onChange }) {
+  const cls = 'rdd-field-input'
+  if (f.data_type === 'boolean') {
+    return (
+      <select className={cls} value={value} onChange={e => onChange(e.target.value)}>
+        <option value="">— Chọn —</option>
+        <option value="true">Có</option>
+        <option value="false">Không</option>
+      </select>
+    )
+  }
+  if (f.data_type === 'date') {
+    return <input type="date" className={cls} value={value} onChange={e => onChange(e.target.value)} />
+  }
+  if (f.data_type === 'number' || f.data_type === 'money') {
+    return <input type="number" className={cls} value={value} onChange={e => onChange(e.target.value)} step={f.data_type === 'money' ? '1' : 'any'} />
+  }
+  return <input type="text" className={cls} value={value} onChange={e => onChange(e.target.value)} />
 }
 
 function MetaRow({ label, children }) {

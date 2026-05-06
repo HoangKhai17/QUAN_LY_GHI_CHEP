@@ -310,6 +310,29 @@
   padding: 1px 5px;
 }
 .rdd-field-src--human { background: #eff6ff; color: #2563eb; }
+.rdd-field-edit-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 13px; color: var(--ink3);
+  padding: 0 2px; line-height: 1;
+  opacity: 0.4; transition: opacity .15s;
+  flex-shrink: 0;
+}
+.rdd-field-row:hover .rdd-field-edit-btn { opacity: 1; }
+.rdd-field-edit-row {
+  display: flex; align-items: center; gap: 6px; flex: 1; justify-content: flex-end;
+}
+.rdd-field-input {
+  border: 1.5px solid var(--primary);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 13px; color: var(--ink);
+  outline: none;
+  min-width: 0; flex: 1; max-width: 200px;
+  background: #fff;
+}
+.rdd-field-input:focus { box-shadow: 0 0 0 3px rgba(31,143,58,.1); }
+.rdd-field-row { align-items: center; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {

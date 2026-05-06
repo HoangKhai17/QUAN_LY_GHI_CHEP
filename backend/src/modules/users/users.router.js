@@ -170,6 +170,49 @@ router.post('/:id/reset-password', requireAuth, requireUUID('id'), requireRole('
   res.json({ temp_password: tempPw })
 })
 
+// PATCH /api/users/:id — admin cập nhật username và/hoặc name
+router.patch('/:id', requireAuth, requireUUID('id'), requireRole('admin'), async (req, res) => {
+  const { username, name } = req.body || {}
+
+  const setClauses = []
+  const params     = []
+
+  if (username !== undefined) {
+    const clean = username.trim().toLowerCase()
+    if (clean.length < 3 || clean.length > 50) {
+      return res.status(400).json({ error: 'username phải từ 3–50 ký tự' })
+    }
+    if (!/^[a-z0-9._-]+$/.test(clean)) {
+      return res.status(400).json({ error: 'username chỉ được dùng chữ thường, số, dấu chấm, gạch ngang, gạch dưới' })
+    }
+    setClauses.push(`username = $${params.push(clean)}`)
+  }
+
+  if (name !== undefined) {
+    const clean = name.trim()
+    if (!clean) return res.status(400).json({ error: 'name không được để trống' })
+    setClauses.push(`name = $${params.push(clean)}`)
+  }
+
+  if (setClauses.length === 0) return res.status(400).json({ error: 'Không có trường nào để cập nhật' })
+
+  params.push(req.params.id)
+  try {
+    const { rows, rowCount } = await db.query(
+      `UPDATE users SET ${setClauses.join(', ')}, updated_at = NOW()
+       WHERE id = $${params.length}
+       RETURNING id, username, name`,
+      params
+    )
+    if (!rowCount) return res.status(404).json({ error: 'User not found' })
+    logAudit({ userId: req.user.sub, action: 'user_updated', resource: 'users', resourceId: req.params.id, newData: { username, name }, req })
+    res.json(rows[0])
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Username đã tồn tại' })
+    throw err
+  }
+})
+
 // PATCH /api/users/:id/role — chỉ admin
 router.patch('/:id/role', requireAuth, requireUUID('id'), requireRole('admin'), async (req, res) => {
   const { role } = req.body || {}

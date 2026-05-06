@@ -82,6 +82,12 @@ const useAuthStore = create((set, get) => {
     },
 
     clearError: () => set({ error: null }),
+
+    clearMustChangePw: () => {
+      const updatedUser = { ...get().user, must_change_pw: false }
+      saveToStorage(get().accessToken, get().refreshToken, updatedUser)
+      set({ user: updatedUser })
+    },
   }
 })
 

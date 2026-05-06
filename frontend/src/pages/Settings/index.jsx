@@ -4,6 +4,66 @@ import * as adminSvc from '../../services/admin.service'
 import notify from '../../utils/notify'
 import './Settings.css'
 
+// ── Inline editable text field ────────────────────────────────────────────────
+
+function InlineEdit({ label, value, placeholder, onSave, validate }) {
+  const [editing, setEditing] = useState(false)
+  const [input,   setInput]   = useState(value ?? '')
+  const [saving,  setSaving]  = useState(false)
+  const [error,   setError]   = useState('')
+
+  function start() { setInput(value ?? ''); setError(''); setEditing(true) }
+  function cancel() { setEditing(false); setError('') }
+
+  async function save() {
+    const clean = input.trim()
+    if (validate) {
+      const msg = validate(clean)
+      if (msg) { setError(msg); return }
+    }
+    setSaving(true)
+    try {
+      await onSave(clean)
+      setEditing(false)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Lỗi lưu')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="adm-modal-field">
+      <span className="adm-modal-label">{label}</span>
+      <span className="adm-modal-value">
+        {editing ? (
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                className="adm-input adm-input-sm"
+                style={{ flex: 1 }}
+                value={input}
+                autoFocus
+                placeholder={placeholder}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel() }}
+              />
+              <button className="adm-confirm-btn adm-confirm-btn--primary" onClick={save} disabled={saving}>{saving ? '…' : '✓'}</button>
+              <button className="adm-confirm-btn" onClick={cancel}>✕</button>
+            </span>
+            {error && <span style={{ fontSize: 11, color: '#dc2626' }}>{error}</span>}
+          </span>
+        ) : (
+          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontFamily: label === 'Tên đăng nhập' ? 'monospace' : 'inherit' }}>
+              {value ? (label === 'Tên đăng nhập' ? `@${value}` : value) : <em style={{ color: '#9ca3af' }}>Chưa có</em>}
+            </span>
+            <button className="adm-confirm-btn" onClick={start} title="Sửa" style={{ fontSize: 12 }}>✎</button>
+          </span>
+        )}
+      </span>
+    </div>
+  )
+}
+
 // ── Shared small components ────────────────────────────────────────────────────
 
 function RoleBadge({ role }) {
@@ -31,7 +91,7 @@ function ActiveDot({ active }) {
 
 // ── User detail modal ──────────────────────────────────────────────────────────
 
-function UserDetailModal({ user, isAdmin, onClose, onRoleChange, onToggleActive, onResetPw }) {
+function UserDetailModal({ user, isAdmin, onClose, onRoleChange, onToggleActive, onResetPw, onUpdateUser }) {
   const [confirmReset, setConfirmReset] = useState(false)
   const initials = user.name.split(' ').map(w => w[0]).slice(-2).join('').toUpperCase() || '?'
 
@@ -63,6 +123,40 @@ function UserDetailModal({ user, isAdmin, onClose, onRoleChange, onToggleActive,
 
           {/* Info grid */}
           <div className="adm-modal-grid">
+            {isAdmin ? (
+              <InlineEdit
+                label="Tên đăng nhập"
+                value={user.username}
+                placeholder="vd: nguyen.van.a"
+                onSave={val => onUpdateUser(user, { username: val })}
+                validate={v => {
+                  if (v.length < 3 || v.length > 50) return 'Phải từ 3–50 ký tự'
+                  if (!/^[a-z0-9._-]+$/.test(v)) return 'Chỉ dùng chữ thường, số, . - _'
+                  return null
+                }}
+              />
+            ) : (
+              <div className="adm-modal-field">
+                <span className="adm-modal-label">Tên đăng nhập</span>
+                <span className="adm-modal-value">@{user.username}</span>
+              </div>
+            )}
+
+            {isAdmin ? (
+              <InlineEdit
+                label="Họ và tên"
+                value={user.name}
+                placeholder="Nguyễn Văn A"
+                onSave={val => onUpdateUser(user, { name: val })}
+                validate={v => (!v ? 'Họ tên không được để trống' : null)}
+              />
+            ) : (
+              <div className="adm-modal-field">
+                <span className="adm-modal-label">Họ và tên</span>
+                <span className="adm-modal-value">{user.name}</span>
+              </div>
+            )}
+
             <div className="adm-modal-field">
               <span className="adm-modal-label">Vai trò</span>
               <span className="adm-modal-value">
@@ -224,6 +318,14 @@ function UsersTab({ currentUserRole }) {
     }
   }
 
+  async function handleUpdateUser(u, payload) {
+    const updated = await adminSvc.updateUser(u.id, payload)
+    const merged  = { ...u, ...updated }
+    setUsers(prev => prev.map(x => x.id === u.id ? merged : x))
+    if (selectedUser?.id === u.id) setSelectedUser(merged)
+    notify.success('Cập nhật thành công', `Đã lưu thông tin cho ${merged.name}`)
+  }
+
   return (
     <div className="adm-section">
       <div className="adm-section-header">
@@ -377,6 +479,7 @@ function UsersTab({ currentUserRole }) {
           onRoleChange={handleRoleChange}
           onToggleActive={handleToggleActive}
           onResetPw={handleResetPw}
+          onUpdateUser={handleUpdateUser}
         />
       )}
     </div>

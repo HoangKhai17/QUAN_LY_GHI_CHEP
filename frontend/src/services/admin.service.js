@@ -11,6 +11,11 @@ export async function createUser(payload) {
   return data // { id, username, name, role, is_active, temp_password? }
 }
 
+export async function updateUser(id, payload) {
+  const { data } = await api.patch(`/api/users/${id}`, payload)
+  return data // { id, username, name }
+}
+
 export async function setUserActive(id, is_active) {
   const { data } = await api.patch(`/api/users/${id}/activate`, { is_active })
   return data

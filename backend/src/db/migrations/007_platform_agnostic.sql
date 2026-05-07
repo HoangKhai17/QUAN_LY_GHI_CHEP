@@ -6,8 +6,13 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS platform        VARCHAR(20) NOT NULL DEFAULT 'zalo',
   ADD COLUMN IF NOT EXISTS platform_user_id VARCHAR(100);
 
--- Migrate dữ liệu zalo_id hiện có sang platform_user_id
-UPDATE users SET platform_user_id = zalo_id WHERE zalo_id IS NOT NULL;
+-- Migrate dữ liệu zalo_id hiện có sang platform_user_id (nếu cột còn tồn tại)
+DO $$BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'users' AND column_name = 'zalo_id') THEN
+    UPDATE users SET platform_user_id = zalo_id WHERE zalo_id IS NOT NULL;
+  END IF;
+END $$;
 
 -- Unique constraint: cùng platform không trùng platform_user_id
 ALTER TABLE users
@@ -24,11 +29,16 @@ ALTER TABLE records
   ADD COLUMN IF NOT EXISTS source_chat_id      VARCHAR(100),
   ADD COLUMN IF NOT EXISTS source_chat_type    VARCHAR(20) DEFAULT 'group';
 
--- Migrate dữ liệu cũ
-UPDATE records SET
-  platform_message_id = zalo_message_id,
-  source_chat_id      = zalo_group_id
-WHERE zalo_message_id IS NOT NULL;
+-- Migrate dữ liệu cũ (nếu cột còn tồn tại)
+DO $$BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'records' AND column_name = 'zalo_message_id') THEN
+    UPDATE records SET
+      platform_message_id = zalo_message_id,
+      source_chat_id      = zalo_group_id
+    WHERE zalo_message_id IS NOT NULL;
+  END IF;
+END $$;
 
 -- Unique: cùng platform không nhận duplicate message
 ALTER TABLE records DROP CONSTRAINT IF EXISTS records_zalo_message_id_key;
